@@ -1,0 +1,6 @@
+build
+.idea
+cmake-build-debug
+tester/__pycache__/
+tester/tester.out
+.vscode
