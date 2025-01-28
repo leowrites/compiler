@@ -1,0 +1,6 @@
+## Implementation
+
+The implementation of the grammar is very similar to the grammars specified in language.pdf. There were a few re-orderings (for example putting the uniary operator '!' before the binary operators) to ensure the operator prescedence is correct. The biggest difference between the implementation n MiniC.g4 and language.pdf is what consititutes as a "sequence of statements". Where statements can occur, instead of a recursively defined structure (a statement can become two statements), I replaced it with a flat structure where a stmt_seq defines one or more statements. Other than the motivation being this is how the tester is written, using a flat structure would save more space and create simpler ASTs. 
+
+## Testing Plan
+A few tests were provided that already checks some of the grammar. I have also ran the parser on the sample programs I wrote for A1, which are more complex and uses a more comprehensive set of rules. Since writing sample code doesn't take too long, to ensure the parser is working correctly, I will write more sample code to cover every possible rule.

@@ -39,8 +39,8 @@ stmt_seq
 ;
 stmt
 :   expr ';'
-    | 'if' '(' expr ')'
-    | 'if' '(' expr ')' 'else' stmt_seq
+    | 'if' '(' expr ')' stmt
+    | 'if' '(' expr ')' stmt 'else' stmt
     | 'for' '(' expropt ';' expropt ';' expropt ')' stmt_seq
     | 'while' '(' expr ')' stmt_seq
     | 'break' ';'
