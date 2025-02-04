@@ -124,6 +124,9 @@ stmt returns [minicc::Statement *val]
     }
     |   'for' '(' e1=expropt ';' e2=expropt ';' e3=expropt ')' stmt {
         $val = new minicc::ForStatement();
+        $val->addChild($e1.val);
+        $val->addChild($e2.val);
+        $val->addChild($e3.val);
         $val->addChild($stmt.val);
     }
     |   'while' '(' expr ')' stmt {
@@ -137,7 +140,10 @@ stmt returns [minicc::Statement *val]
     | 'return' ';' {
         $val = new minicc::ReturnStatement();
     }
-    |   'return' expr ';' 
+    |   'return' expr ';' {
+        $val = new minicc::ReturnStatement();
+        $val->addChild($expr.val);
+    }
     |   scope {
         $val = $scope.val;
     }
@@ -233,8 +239,10 @@ parameterentry returns [minicc::Parameter *val]
         $val->addChild($parametername.val);
     }
     ;
-expropt
-:    expr
+expropt returns [minicc::Expr *val]
+:    expr {
+        $val = $expr.val;
+    }
     |   /* eps */
     ;
 expr returns [minicc::Expr* val]
@@ -244,13 +252,53 @@ expr returns [minicc::Expr* val]
     |   CHAR {
         $val = new minicc::CharLiteralExpr($CHAR.text[1]);
     }
-    |   '-' expr
-    |   e1=expr op=('*'|'/') e2=expr
-    |   e1=expr op=('+'|'-') e2=expr
-    |   e1=expr op=('==' | '!=' | '<' | '<=' | '>' | '>=') e2=expr
-    |   '!' expr
-    |   e1=expr '&&' e2=expr
-    |   e1=expr '||' e2=expr
+    |   op='-' expr {
+        auto expr = new minicc::UnaryExpr();
+        expr->setOpcode(expr->opcodeFromString($op.text));
+        expr->addChild($expr.val);
+        $val = expr;
+    }
+    |   e1=expr op=('*'|'/') e2=expr {
+        auto expr = new minicc::BinaryExpr();
+        expr->setOpcode(expr->opcodeFromString($op.text));
+        expr->addChild($e1.val);
+        expr->addChild($e2.val);
+        $val = expr;
+    }
+    |   e1=expr op=('+'|'-') e2=expr {
+        auto expr = new minicc::BinaryExpr();
+        expr->setOpcode(expr->opcodeFromString($op.text));
+        expr->addChild($e1.val);
+        expr->addChild($e2.val);
+        $val = expr;
+    }
+    |   e1=expr op=('==' | '!=' | '<' | '<=' | '>' | '>=') e2=expr {
+        auto expr = new minicc::BinaryExpr();
+        expr->setOpcode(expr->opcodeFromString($op.text));
+        expr->addChild($e1.val);
+        expr->addChild($e2.val);
+        $val = expr;
+    }
+    |   op='!' expr {
+        auto expr = new minicc::UnaryExpr();
+        expr->setOpcode(expr->opcodeFromString($op.text));
+        expr->addChild($expr.val);
+        $val = expr;
+    }
+    |   e1=expr op='&&' e2=expr {
+        auto expr = new minicc::BinaryExpr();
+        expr->setOpcode(expr->opcodeFromString($op.text));
+        expr->addChild($e1.val);
+        expr->addChild($e2.val);
+        $val = expr;
+    }
+    |   e1=expr op='||' e2=expr {
+        auto expr = new minicc::BinaryExpr();
+        expr->setOpcode(expr->opcodeFromString($op.text));
+        expr->addChild($e1.val);
+        expr->addChild($e2.val);
+        $val = expr;
+    }
     |   var '=' expr {
         auto expr = new minicc::AssignmentExpr();
         expr->addChild($var.val);
@@ -262,10 +310,28 @@ expr returns [minicc::Expr* val]
         auto expr = new minicc::BoolLiteralExpr(value);
         $val = expr;
     }
-    |   '(' expr ')'
-    |   var
-    |   funcname '(' arguments ')'
-    |   parametername
+    |   '(' expr ')' {
+        $val = $expr.val;
+    }
+    |   var {
+        $val = new minicc::VarExpr();
+        $val->addChild($var.val);
+    }
+    |   funcname '(' arguments ')' {
+        $val = new minicc::CallExpr();
+        $val->addChild($funcname.val);
+        if ($arguments.start) {
+            for (auto arg: *$arguments.val) {
+                $val->addChild(arg);
+            }
+        }
+    }
+    |   parametername {
+        $val = new minicc::VarExpr();
+        auto reference = new minicc::VarReference();
+        reference->addChild($parametername.val);
+        $val->addChild(reference);
+    }
     ;
 var returns [minicc::VarReference *val]
 @init {
@@ -280,21 +346,25 @@ var returns [minicc::VarReference *val]
         $expr.val->setParent($val);
     }
     ;
-arguments
+arguments returns [std::vector<minicc::Expr*> *val]
 :   /* epsilon */
-    |   argumentlist
+    |   argumentlist {
+        $val = $argumentlist.val;
+    }
     ;
-argumentlist
-:   expr
-    |   a1=argumentlist ',' expr
+argumentlist returns [std::vector<minicc::Expr*> *val]
+@init {
+    $val = new std::vector<minicc::Expr*>();
+}
+:   expr {
+        $val->push_back($expr.val);
+    }
+    |   a1=argumentlist ',' expr {
+        $val = $a1.val;
+        $val->push_back($expr.val);
+    }
     ;
 varname returns [minicc::Identifier *val]
-@init {
-    // std::cerr << "[DEBUG] Entering varname" << std::endl;
-}
-@after {
-    // std::cerr << "[DEBUG] Leaving varname" << std::endl;
-}
 :   ID {
         $val = new minicc::Identifier($ID.text);
     }
