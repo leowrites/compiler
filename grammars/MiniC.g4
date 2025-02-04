@@ -276,7 +276,9 @@ expropt returns [minicc::Expr *val]
 :    expr {
         $val = $expr.val;
     }
-    |   /* eps */
+    |   /* eps */ {
+        $val = new minicc::EmptyExpr();
+    }
     ;
 expr returns [minicc::Expr* val]
 @after {
@@ -358,7 +360,7 @@ expr returns [minicc::Expr* val]
     |   funcname '(' arguments ')' {
         $val = new minicc::CallExpr();
         $val->addChild($funcname.val);
-        if ($arguments.start) {
+        if ($arguments.start && $arguments.val) {
             for (auto arg: *$arguments.val) {
                 $val->addChild(arg);
             }

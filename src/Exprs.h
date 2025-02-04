@@ -240,6 +240,15 @@ namespace minicc {
             visitor->visitAssignmentExpr(this);
         }
     };
+
+    class EmptyExpr: public Expr {
+    public:
+        EmptyExpr() : Expr() { }
+
+        void accept(ASTVisitor *visitor) override {
+            visitor->visitExpr(this);
+        }
+    };
 }
 
 #endif //MINICC_EXPRS_H
