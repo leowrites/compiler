@@ -130,6 +130,14 @@ namespace minicc {
             visitor->visitScope(this);
         }
     };
+
+    class StatementSequence: public Statement {
+    public:
+        StatementSequence() : Statement() { }
+        void accept(ASTVisitor *visitor) override {
+            visitor->visitStmt(this);
+        }
+    };
 }
 
 #endif //MINICC_STATEMENTS_H
