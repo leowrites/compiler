@@ -268,17 +268,13 @@ parameterentry returns [minicc::Parameter *val]
     }
     ;
 expropt returns [minicc::Expr *val]
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
 :    expr {
         $val = $expr.val;
+        int line = _ctx->start->getLine();
+        int col = _ctx->start->getCharPositionInLine();
+        $val->setSrcLoc(line, col);
     }
-    |   /* eps */ {
-        $val = new minicc::EmptyExpr();
-    }
+    |   /* eps */
     ;
 expr returns [minicc::Expr* val]
 @after {
@@ -356,6 +352,9 @@ expr returns [minicc::Expr* val]
     |   var {
         $val = new minicc::VarExpr();
         $val->addChild($var.val);
+        int line = _ctx->start->getLine();
+        int col = _ctx->start->getCharPositionInLine();
+        $val->setSrcLoc(line, col);
     }
     |   funcname '(' arguments ')' {
         $val = new minicc::CallExpr();
@@ -370,6 +369,9 @@ expr returns [minicc::Expr* val]
         $val = new minicc::VarExpr();
         auto reference = new minicc::VarReference();
         reference->addChild($parametername.val);
+        int line = _ctx->start->getLine();
+        int col = _ctx->start->getCharPositionInLine();
+        reference->setSrcLoc(line, col);
         $val->addChild(reference);
     }
     ;
