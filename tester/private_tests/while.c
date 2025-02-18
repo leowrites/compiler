@@ -1,22 +1,32 @@
-// Test while loops
+// Private: Check while loop
+#include "minicio.h"
 
-int x;
-int arr[10];
 
 int main() {
+    int J, K;
+    int A[100], B[100];
     int i;
-    while (true) {
-        if (i > 9)
-            break;
-        i = i + 1;
-        arr[i] = i;
-        if (i / 2 == 0) {
-            x = 3;
-            while (x > 0) {
-                arr[i] = arr[i] * x;
-                x = x - 1;
-            }
-        }
+    int j;
+    // test nested loop
+    for(i = 0; i < 100; i = i + 1) {
+        for(j = 0; j < 100; j = j + 1) 
+            A[i] = i + j;    
     }
+    J = 0;
+    while(J < 100) {
+        K = 0;
+        while(K < 100)
+            K = K + 1;
+        if(B[J] == A[J])
+            break;
+        J = J + 1;
+    }
+
+    putint(B[0]);
+    putint(B[1]);
+    putint(B[2]);
+    putint(B[3]);
+    putint(B[4]);
+
     return 0;
 }

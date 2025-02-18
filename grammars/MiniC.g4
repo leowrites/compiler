@@ -268,6 +268,9 @@ parameterentry returns [minicc::Parameter *val]
     }
     ;
 expropt returns [minicc::Expr *val]
+@init {
+    $val = nullptr;
+}
 :    expr {
         $val = $expr.val;
         int line = _ctx->start->getLine();
@@ -394,6 +397,9 @@ var returns [minicc::VarReference *val]
     }
     ;
 arguments returns [std::vector<minicc::Expr*> *val]
+@init {
+    $val = nullptr;
+}
 :   /* epsilon */
     |   argumentlist {
         $val = $argumentlist.val;
