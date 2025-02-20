@@ -106,12 +106,29 @@ namespace minicc {
         //The function returns variable symbol table which contains variable "name"
         VarSymbolTable *locateDeclaringTableForVar(const std::string &name) {
             //start your code here
+            auto currScope = getParentScope();
+            while (currScope) {
+                auto currTable = currScope->scopeVarTable();
+                if (currTable->lookup(name)) {
+                    return currTable;
+                }
+                currScope = currScope->getParentScope();
+            }
             return nullptr;
         }
 
         //You may need this function in Assigment 4
         WhileStatement* getParentWhileStatement() const {
             //start your code here
+            ASTNode* parent = Parent;
+            while (parent != nullptr) {
+                if (parent->isWhileStatement()) {
+                    return (WhileStatement*)parent;
+                }
+                if (parent->isFuncDecl())
+                    break;
+                parent = parent->getParent();
+            }
             return nullptr;
         }
 

@@ -10,6 +10,7 @@
 #include <cassert>
 #include "Types.h"
 #include <map>
+#include <iostream>
 
 namespace llvm {
     class Value;
@@ -31,6 +32,18 @@ namespace minicc {
 
     public:
         //define your member variables and functions
+        VarSymbolTable() : Table() { }
+        void insert(const std::string &key, const VarSymbolEntry &entry) {
+            Table.emplace(key, entry);
+        }
+    
+        VarSymbolEntry* lookup(const std::string &key) const {
+            auto it = Table.find(key);
+            if (it != Table.end()) {
+                return (VarSymbolEntry*)&it->second;
+            }
+            return nullptr;
+        }
     };
 
     struct FuncSymbolEntry {
@@ -45,6 +58,16 @@ namespace minicc {
         std::map<std::string, FuncSymbolEntry> Table;
     public:
         //define your member variables and functions
+        void insert(const std::string &key, const FuncSymbolEntry entry) {
+            Table.emplace(key, entry);
+        }
+        FuncSymbolEntry* lookup(std::string key) {
+            auto it = Table.find(key);
+            if (it != Table.end()) {
+                return &it->second;
+            }
+            return nullptr;
+        }
     };
 }
 
