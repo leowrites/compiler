@@ -7,134 +7,87 @@ grammar MiniC;
 #include "Statements.h"
 #include "Exprs.h"
 #include "Terms.h"
+#include <iostream>
 }
-/*Add your grammar rules in Assignment 2*/
-/*Then add compiler actions in Assignment 3*/
+
 prog returns [minicc::Program *val]
-/*You may need init in Assignment 3*/
 @init {
-    // std::cerr << "[DEBUG] Entering prog" << std::endl;
     $val = new minicc::Program();
-    $val->setParent(nullptr);
-    $val->setRoot($val);
-    $val->setSyslibFlag(false);
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
+    $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
 }
-@after {
-    // std::cerr << "[DEBUG] Leaving prog" << std::endl;
-}
-:	(preamble | ) decls+=decl* EOF {
-    if ($preamble.start && $preamble.headerIncluded) {
-        $val->setSyslibFlag(true);
-        // std::cerr << "[DEBUG] Preamble included" << std::endl;
-    }
-    for (auto decl: $decls) {
-        $val->addChild(decl->val);
-    }
-}
+:	(preamble { $val->setSyslibFlag(true); } | { $val->setSyslibFlag(false); } ) (decl {$val->addChild($decl.val); } )* EOF
 ;
-preamble returns [bool headerIncluded]
-:  '#include' '"minicio.h"' { 
-        $headerIncluded = true;
-    }
-;
-decl returns [minicc::Declaration *val]
-@init {
-    // std::cerr << "[DEBUG] Entering decl" << std::endl;
-}
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
-:   vardecl {
-        $val = $vardecl.val;
-    }
+preamble:  '#include' '"minicio.h"';
+decl returns [minicc::Declaration *val] locals [minicc::FuncDeclaration *func]
+:   vardecl {$val = $vardecl.val; }
     |   rettype funcname '(' parameters ')' scope {
-        auto decl = new minicc::FuncDeclaration();
-        decl->setHasBody(true);
-        $val = decl;
-        $val->addChild($rettype.val);
-        $val->addChild($funcname.val);
-        for (auto param: *$parameters.val) {
-            $val->addChild(param);
+            $func = new minicc::FuncDeclaration();
+            $func->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+            $func->addChild($rettype.val);
+            $func->addChild($funcname.val);
+            for (size_t i = 0; i < $parameters.val.size(); i++)
+                $func->addChild($parameters.val[i]);
+            $func->addChild($scope.val);
+            $func->setHasBody(true);
+            $val = $func;
         }
-        $val->addChild($scope.val);
-    }
     |   rettype funcname '(' parameters ')' ';' {
-        auto decl = new minicc::FuncDeclaration();
-        decl->setHasBody(true);
-        $val = decl;
-        $val->addChild($rettype.val);
-        $val->addChild($funcname.val);
-        for (auto param: *$parameters.val) {
-            $val->addChild(param);
+            $func = new minicc::FuncDeclaration();
+            $func->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+            $func->addChild($rettype.val);
+            $func->addChild($funcname.val);
+            for (size_t i = 0; i < $parameters.val.size(); i++)
+                $func->addChild($parameters.val[i]);
+            $func->setHasBody(false);
+            $val = $func;
         }
-    }
     ;
-vardecl returns [minicc::Declaration *val]
-@init {
-    // std::cerr << "[DEBUG] Entering vardecl" << std::endl;
-}
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
+vardecl returns [minicc::VarDeclaration *val]
 :   vartype varlist ';' {
         $val = new minicc::VarDeclaration();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($vartype.val);
-        for (auto var : *$varlist.val) {
-            $val->addChild(var);
-        }
+        for (size_t i = 0; i < $varlist.val.size(); i++)
+            $val->addChild($varlist.val[i]);
     }
     ;
-scope returns [minicc::ScopeStatement *val]
-/*You may need init in Assignment 3*/
+scope returns [minicc::ScopeStatement *val] locals [size_t declcnt]
 @init {
-    // std::cerr << "[DEBUG] Entering scope" << std::endl;
+    $val = new minicc::ScopeStatement();
+    $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+    $declcnt = 0;
 }
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
-:  '{' vardecls+=vardecl* stmts+=stmt* '}' {
-        $val = new minicc::ScopeStatement();
-        $val->setNumVarDecl($vardecls.size());
-        for (auto vardecl: $vardecls) {
-            $val->addChild(vardecl->val);
-        }
-        for (auto stmt: $stmts) {
-            $val->addChild(stmt->val);
-        }
+:  '{' (vardecl {
+        $val->addChild($vardecl.val);
+        $declcnt ++;
+    })* (stmt {
+        $val->addChild($stmt.val);
+    })* '}' {
+        $val->setNumVarDecl($declcnt);
     }
     ;
 stmt returns [minicc::Statement *val]
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
 :   expr ';' {
         $val = new minicc::ExprStatement();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($expr.val);
     }
     |   'if' '(' expr ')' stmt {
         $val = new minicc::IfStatement();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($expr.val);
         $val->addChild($stmt.val);
     }
     |   'if' '(' expr ')' s1=stmt 'else' s2=stmt {
         $val = new minicc::IfStatement();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($expr.val);
         $val->addChild($s1.val);
         $val->addChild($s2.val);
     }
     |   'for' '(' e1=expropt ';' e2=expropt ';' e3=expropt ')' stmt {
         $val = new minicc::ForStatement();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($e1.val);
         $val->addChild($e2.val);
         $val->addChild($e3.val);
@@ -142,309 +95,259 @@ stmt returns [minicc::Statement *val]
     }
     |   'while' '(' expr ')' stmt {
         $val = new minicc::WhileStatement();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($expr.val);
         $val->addChild($stmt.val);
     }
-    | 'break' ';' {
+    |   'break' ';' {
         $val = new minicc::BreakStatement();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
-    | 'return' ';' {
+    |   'return' ';' {
         $val = new minicc::ReturnStatement();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
     |   'return' expr ';' {
         $val = new minicc::ReturnStatement();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($expr.val);
     }
     |   scope {
         $val = $scope.val;
     }
     ;
-varlist returns [std::vector<minicc::VarReference*> *val]
-@init {
-    // std::cerr << "[DEBUG] Entering varlist" << std::endl;
-}
-@after {
-    // std::cerr << "[DEBUG] Leaving varlist" << std::endl;
-}
+varlist returns [std::vector<minicc::VarReference*> val]
 :    varlistentry {
-        $val = new std::vector<minicc::VarReference*>();
-        $val->push_back($varlistentry.val);
+        $val.clear();
+        $val.push_back($varlistentry.val);
     }
     |   v1=varlist ',' varlistentry {
         $val = $v1.val;
-        $val->push_back($varlistentry.val);
+        $val.push_back($varlistentry.val);
     }
     ;
-varlistentry returns [minicc::VarReference *val]
-@init {
-    $val = new minicc::VarReference();
-    // std::cerr << "[DEBUG] Entering varlistentry" << std::endl;
-}
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
+varlistentry returns [minicc::VarReference* val] locals [minicc::ConstantLiteralExpr *tmp]
 :   varname {
+        $val = new minicc::VarReference();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($varname.val);
-        
-        int line = _ctx->start->getLine();
-        int col = _ctx->start->getCharPositionInLine();
-        $val->setSrcLoc(line, col);
     }
     |   varname '[' INT ']' {
+        $val = new minicc::VarReference();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($varname.val);
-        
-        auto intNode = new minicc::IntLiteralExpr($INT.int);
-        $val->addChild(intNode);
-        
-        int line = _ctx->start->getLine();
-        int col = _ctx->start->getCharPositionInLine();
-        $val->setSrcLoc(line, col);
+        $tmp = minicc::ConstantLiteralExpr::fromString($INT.text);
+        $tmp->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        $val->addChild($tmp);
     }
     ;
-vartype returns [minicc::TypeReference *val]
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
-:   t=('int' | 'bool' | 'char') {
-        $val = new minicc::TypeReference(
-            $t.text == "int"  ? minicc::Type::PrimitiveTypeEnum::Int  :
-            $t.text == "bool" ? minicc::Type::PrimitiveTypeEnum::Bool :
-                          minicc::Type::PrimitiveTypeEnum::Char
-        );
+vartype returns [minicc::TypeReference* val]
+:    'int' {
+        $val = new minicc::TypeReference(minicc::Type::Int);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
-;
-rettype returns [minicc::TypeReference *val]
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
-:    l='void' {
-        $val = new minicc::TypeReference(minicc::Type::PrimitiveTypeEnum::Void);
-        $val->setSrcLoc($l.line, $l.pos);
+    |   'bool' {
+        $val = new minicc::TypeReference(minicc::Type::Bool);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+    }
+    |   'char' {
+        $val = new minicc::TypeReference(minicc::Type::Char);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+    }
+    ;
+rettype returns [minicc::TypeReference* val]
+:    'void' {
+        $val = new minicc::TypeReference(minicc::Type::Void);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
     |   vartype {
         $val = $vartype.val;
     }
     ;
-parameters returns [std::vector<minicc::Parameter*> *val]
-:   parameterlist? {
-        if ($parameterlist.start)
-            $val = $parameterlist.val;
-        else
-            $val = new std::vector<minicc::Parameter*>();
+parameters returns [std::vector<minicc::Parameter*> val]
+:     /* eps */ {
+        $val.clear();
     }
-;
-parameterlist returns [std::vector<minicc::Parameter*> *val]
-@init {
-    // std::cerr << "[DEBUG] Entering parameterlist" << std::endl;
-}
-@after {
-    // std::cerr << "[DEBUG] Leaving parameterlist" << std::endl;
-}
-:   parameterentry {
-        $val = new std::vector<minicc::Parameter*>();
-        $val->push_back($parameterentry.val);
-    }
-    |   p1=parameterlist ',' parameterentry {
-        $val = $p1.val;
-        $val->push_back($parameterentry.val);
+    |   parameterlist {
+        $val = $parameterlist.val;
     }
     ;
-parameterentry returns [minicc::Parameter *val]
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
-:   vartype parametername {
+parameterlist returns [std::vector<minicc::Parameter*> val]
+:     parameterentry {
+        $val.clear();
+        $val.push_back($parameterentry.val);
+    }
+    |   p1=parameterlist ',' parameterentry {
+        $val=$p1.val;
+        $val.push_back($parameterentry.val);
+    }
+    ;
+parameterentry returns [minicc::Parameter* val]
+:     vartype parametername {
         $val = new minicc::Parameter();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($vartype.val);
         $val->addChild($parametername.val);
     }
     ;
 expropt returns [minicc::Expr *val]
-@init {
-    $val = nullptr;
-}
 :    expr {
         $val = $expr.val;
-        int line = _ctx->start->getLine();
-        int col = _ctx->start->getCharPositionInLine();
-        $val->setSrcLoc(line, col);
     }
-    |   /* eps */
+    |   /* eps */ {
+        $val = nullptr;
+    }
     ;
-expr returns [minicc::Expr* val]
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
+expr returns [minicc::Expr *val, bool compare] locals [minicc::VarReference *tmp, bool minus_flag, minicc::Expr *inttmp]
+@init{$minus_flag=false; $compare=false;}
 :   INT {
-        $val = new minicc::IntLiteralExpr($INT.int);
+        $val = minicc::ConstantLiteralExpr::fromString($INT.text);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
-    |   CHAR {
-        $val = new minicc::CharLiteralExpr($CHAR.text[1]);
+    |
+    CHAR {
+        $val = minicc::ConstantLiteralExpr::fromString($CHAR.text);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
-    |   op='-' expr {
-        auto expr = new minicc::UnaryExpr();
-        expr->setOpcode(expr->opcodeFromString($op.text));
-        expr->addChild($expr.val);
-        $val = expr;
+    |   '-' expr {
+        $minus_flag = true;
+        if (typeid(*$expr.val) == typeid(minicc::IntLiteralExpr)){
+            delete $expr.val;
+            $expr.val = minicc::ConstantLiteralExpr::fromString($expr.text, $minus_flag);
+            $expr.val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine()); 
+        }
+        $val = new minicc::UnaryExpr();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        ((minicc::UnaryExpr*)$val)->setOpcode(minicc::Expr::Sub);
+        $val->addChild($expr.val);
     }
     |   e1=expr op=('*'|'/') e2=expr {
-        auto expr = new minicc::BinaryExpr();
-        expr->setOpcode(expr->opcodeFromString($op.text));
-        expr->addChild($e1.val);
-        expr->addChild($e2.val);
-        $val = expr;
+        $val = new minicc::BinaryExpr();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        ((minicc::BinaryExpr*)$val)->setOpcode(minicc::Expr::opcodeFromString($op.text));
+        $val->addChild($e1.val);
+        $val->addChild($e2.val);
     }
     |   e1=expr op=('+'|'-') e2=expr {
-        auto expr = new minicc::BinaryExpr();
-        expr->setOpcode(expr->opcodeFromString($op.text));
-        expr->addChild($e1.val);
-        expr->addChild($e2.val);
-        $val = expr;
+        $val = new minicc::BinaryExpr();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        ((minicc::BinaryExpr*)$val)->setOpcode(minicc::Expr::opcodeFromString($op.text));
+        $val->addChild($e1.val);
+        $val->addChild($e2.val);
     }
     |   e1=expr op=('==' | '!=' | '<' | '<=' | '>' | '>=') e2=expr {
-        auto expr = new minicc::BinaryExpr();
-        expr->setOpcode(expr->opcodeFromString($op.text));
-        expr->addChild($e1.val);
-        expr->addChild($e2.val);
-        $val = expr;
+        $val = new minicc::BinaryExpr();
+        $compare = true;
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        ((minicc::BinaryExpr*)$val)->setOpcode(minicc::Expr::opcodeFromString($op.text));
+        $val->addChild($e1.val);
+        $val->addChild($e2.val);
     }
-    |   op='!' expr {
-        auto expr = new minicc::UnaryExpr();
-        expr->setOpcode(expr->opcodeFromString($op.text));
-        expr->addChild($expr.val);
-        $val = expr;
+    |   '!' expr {
+        $val = new minicc::UnaryExpr();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        ((minicc::UnaryExpr*)$val)->setOpcode(minicc::Expr::Not);
+        $val->addChild($expr.val);
     }
-    |   e1=expr op='&&' e2=expr {
-        auto expr = new minicc::BinaryExpr();
-        expr->setOpcode(expr->opcodeFromString($op.text));
-        expr->addChild($e1.val);
-        expr->addChild($e2.val);
-        $val = expr;
+    |   e1=expr '&&' e2=expr {
+        $val = new minicc::BinaryExpr();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        ((minicc::BinaryExpr*)$val)->setOpcode(minicc::Expr::And);
+        $val->addChild($e1.val);
+        $val->addChild($e2.val);
     }
-    |   e1=expr op='||' e2=expr {
-        auto expr = new minicc::BinaryExpr();
-        expr->setOpcode(expr->opcodeFromString($op.text));
-        expr->addChild($e1.val);
-        expr->addChild($e2.val);
-        $val = expr;
+    |   e1=expr '||' e2=expr {
+        $val = new minicc::BinaryExpr();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        ((minicc::BinaryExpr*)$val)->setOpcode(minicc::Expr::Or);
+        $val->addChild($e1.val);
+        $val->addChild($e2.val);
     }
     |   var '=' expr {
-        auto expr = new minicc::AssignmentExpr();
-        expr->addChild($var.val);
-        expr->addChild($expr.val);
-        $val = expr;
+        $val = new minicc::AssignmentExpr();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        $val->addChild($var.val);
+        $val->addChild($expr.val);
     }
-    | v=('true' | 'false') {
-        bool value = $v.text == "true";
-        auto expr = new minicc::BoolLiteralExpr(value);
-        $val = expr;
+    |   'true' {
+        $val = minicc::ConstantLiteralExpr::fromString("true");
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+    }
+    |   'false' {
+        $val = minicc::ConstantLiteralExpr::fromString("false");
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
     |   '(' expr ')' {
         $val = $expr.val;
     }
     |   var {
         $val = new minicc::VarExpr();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($var.val);
-        int line = _ctx->start->getLine();
-        int col = _ctx->start->getCharPositionInLine();
-        $val->setSrcLoc(line, col);
     }
     |   funcname '(' arguments ')' {
         $val = new minicc::CallExpr();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($funcname.val);
-        if ($arguments.start && $arguments.val) {
-            for (auto arg: *$arguments.val) {
-                $val->addChild(arg);
-            }
-        }
+        for (size_t i = 0; i < $arguments.val.size(); i++)
+            $val->addChild($arguments.val[i]);
     }
     |   parametername {
         $val = new minicc::VarExpr();
-        auto reference = new minicc::VarReference();
-        reference->addChild($parametername.val);
-        int line = _ctx->start->getLine();
-        int col = _ctx->start->getCharPositionInLine();
-        reference->setSrcLoc(line, col);
-        $val->addChild(reference);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        $tmp = new minicc::VarReference();
+        $tmp->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
+        $tmp->addChild($parametername.val);
+        $val->addChild($tmp);
     }
     ;
 var returns [minicc::VarReference *val]
-@init {
-    $val = new minicc::VarReference();
-}
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
 :    varname {
+        $val = new minicc::VarReference();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($varname.val);
     }
     |   varname '[' expr ']' {
+        $val = new minicc::VarReference();
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
         $val->addChild($varname.val);
         $val->addChild($expr.val);
-        $expr.val->setParent($val);
     }
     ;
-arguments returns [std::vector<minicc::Expr*> *val]
-@init {
-    $val = nullptr;
-}
-:   /* epsilon */
+arguments returns [std::vector<minicc::Expr*> val]
+:   /* epsilon */ {
+        $val.clear();
+    }
     |   argumentlist {
         $val = $argumentlist.val;
     }
     ;
-argumentlist returns [std::vector<minicc::Expr*> *val]
-@init {
-    $val = new std::vector<minicc::Expr*>();
-}
+argumentlist returns [std::vector<minicc::Expr*> val]
 :   expr {
-        $val->push_back($expr.val);
+        $val.clear();
+        $val.push_back($expr.val);
     }
     |   a1=argumentlist ',' expr {
-        $val = $a1.val;
-        $val->push_back($expr.val);
+        $val=$a1.val;
+        $val.push_back($expr.val);
     }
     ;
-varname returns [minicc::Identifier *val]
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
+varname returns [minicc::Identifier* val]
 :   ID {
         $val = new minicc::Identifier($ID.text);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
     ;
-funcname returns [minicc::Identifier *val]
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
+funcname returns [minicc::Identifier* val]
 :   ID {
         $val = new minicc::Identifier($ID.text);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
     ;
-parametername returns [minicc::Identifier *val]
-@after {
-    int line = _ctx->start->getLine();
-    int col = _ctx->start->getCharPositionInLine();
-    $val->setSrcLoc(line, col);
-}
+parametername  returns [minicc::Identifier* val]
 :   ID {
         $val = new minicc::Identifier($ID.text);
+        $val->setSrcLoc($ctx->start->getLine(), $ctx->start->getCharPositionInLine());
     }
     ;
 
