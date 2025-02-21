@@ -159,7 +159,7 @@ namespace minicc
             }
         }
         //      Check the last statement a function body must be return if the return type is not void
-        if (func->returnType() != Type(Type::PrimitiveTypeEnum::Void) && func->hasBody())
+        if (func->returnType() != Type(Type::Void) && func->hasBody())
         {
             ScopeStatement *body = func->body();
             // last child of the body should be a return statement
@@ -175,6 +175,7 @@ namespace minicc
 
         if (entry == nullptr)
         {
+            // Insert an entry here
             if (func->hasBody())
             {
                 ScopeStatement *body = func->body();
@@ -205,7 +206,7 @@ namespace minicc
         this->visitASTNode(stmt);
         // Hint: Check the conditional expression must have bool type
         Expr *expr = stmt->condExpr();
-        if (expr->exprType() != Type(Type::PrimitiveTypeEnum::Bool))
+        if (expr->exprType() != Type(Type::Bool))
         {
             std::string message = "Conditional expression in if statement has non-bool type!";
             ErrorMessage error(message, expr->srcLoc());
@@ -217,9 +218,8 @@ namespace minicc
     {
         // start your code here
         this->visitASTNode(stmt);
-        // Hint: Check the second expression in for must be either null or bool type
         Expr *expr = stmt->condExpr();
-        if (expr != nullptr && expr->exprType() != Type(Type::PrimitiveTypeEnum::Bool))
+        if (expr != nullptr && expr->exprType() != Type(Type::Bool))
         {
             std::string message = "Conditional expression in for statement has non-bool type!";
             ErrorMessage error(message, expr->srcLoc());
@@ -233,7 +233,7 @@ namespace minicc
         this->visitASTNode(stmt);
         // Hint: Check the conditional expression must have bool type
         Expr *expr = stmt->condExpr();
-        if (expr != nullptr && expr->exprType() != Type(Type::PrimitiveTypeEnum::Bool))
+        if (expr != nullptr && expr->exprType() != Type(Type::Bool))
         {
             std::string message = "Conditional expression in while statement has non-bool type!";
             ErrorMessage error(message, expr->srcLoc());
@@ -264,11 +264,10 @@ namespace minicc
         //      Check the return type and the returned expression type must match
         if (parent->returnType() != Type(Type::Void)) {
             Expr *expr = stmt->returnExpr();
-            // TODO: array index issue
-            if (parent->returnType().primitiveType() != expr->exprType().primitiveType())
+            if (parent->returnType() != expr->exprType())
             {
-                std::string message = "Function has return type \"" + Type::typeToString(parent->returnType().primitiveType()) + "\"" +
-                                      ", but the returned expression has type " + "\"" + Type::typeToString(expr->exprType().primitiveType()) + "\"!";
+                std::string message = "Function has return type \"" + parent->returnType().toString() + "\"" +
+                                      ", but the returned expression has type " + "\"" + expr->exprType().toString() + "\"!";
                 ErrorMessage error(message, stmt->srcLoc());
                 Errors.emplace_back(error);
             }
@@ -323,6 +322,7 @@ namespace minicc
             Errors.emplace_back(error);
         }
     }
+
     void VerifyAndBuildSymbols::visitBinaryExpr(BinaryExpr *expr)
     {
         // start your code here
@@ -334,9 +334,13 @@ namespace minicc
 
         bool hasError = false;
 
+        Type boolType(Type::Bool);
+        Type intType(Type::Int);
+        Type voidType(Type::Void);
+
         if ((opcode == Expr::ExprOpcode::And || opcode == Expr::Or) &&
-            (expr1->exprType().primitiveType() != Type::Bool ||
-             expr2->exprType().primitiveType() != Type::Bool))
+            (expr1->exprType() != boolType ||
+             expr2->exprType() != boolType))
         {
             std::string message = "\"&&\"/\"||\" opcode must have bool operand!";
             ErrorMessage error(message, expr->srcLoc());
@@ -355,7 +359,7 @@ namespace minicc
         // Check that for arithmetic and other comparison operand, both operand need to be int
         if ((opcode == Expr::Less || opcode == Expr::LessEqual || opcode == Expr::Greater || opcode == Expr::GreaterEqual ||
              opcode == Expr::Add || opcode == Expr::Sub || opcode == Expr::Mul || opcode == Expr::Div) &&
-            (expr1->exprType().primitiveType() != Type::Int || expr2->exprType().primitiveType() != Type::Int))
+            (expr1->exprType() != intType || expr2->exprType() != intType))
         {
             auto operand = Expr::opcodeToString(opcode);
             std::string message = "\"" + operand + "\"" + " opcode must have int type operand!";
@@ -365,15 +369,13 @@ namespace minicc
         }
 
         if (hasError)
-        {
-            expr->setExprType(Type(Type::Void));
-        }
+            expr->setExprType(voidType);
         else
         {
             if (opcode == Expr::Add || opcode == Expr::Sub || opcode == Expr::Div || opcode == Expr::Mul)
-                expr->setExprType(Type(Type::Int));
+                expr->setExprType(intType);
             else
-                expr->setExprType(Type(Type::Bool));
+                expr->setExprType(boolType);
         }
     }
 
@@ -399,7 +401,6 @@ namespace minicc
 
         if (expr->numArgs() != entry->ParameterTypes.size())
         {
-            // Function name() is declared with x parameters but called with y arguments!
             std::string message = "Function \"" + name + "()\" is declared with " + std::to_string(entry->ParameterTypes.size()) +
                                   " parameters but called with " + std::to_string(expr->numArgs()) + " arguments!";
             ErrorMessage error(message, expr->srcLoc());
@@ -408,7 +409,6 @@ namespace minicc
         }
         for (size_t i = 0; i < expr->numArgs(); i++)
         {
-            // TODO: if array,check we are indexing into an array
             if (entry->ParameterTypes[i] != expr->arg(i)->exprType())
             {
                 std::string message = "Function \"" + name + "()\" does not match the type of the call argument at position " + std::to_string(i) + "!";
@@ -426,14 +426,13 @@ namespace minicc
         auto table = ref->locateDeclaringTableForVar(name);
         VarSymbolEntry *entry = nullptr;
         if (table)
-        {
             entry = table->lookup(name);
-        }
         if (entry == nullptr)
         {
             std::string message = "Variable " + name + " is not declared before use!";
             ErrorMessage error(message, expr->srcLoc());
             Errors.emplace_back(error);
+            return Type(Type::Void);
         }
         else
         {
@@ -441,7 +440,7 @@ namespace minicc
             if (ref->isArray())
             {
                 auto index = ref->indexExpr();
-                if (index != nullptr && index->exprType().primitiveType() != Type::Int)
+                if (index != nullptr && index->exprType() != Type(Type::Int))
                 {
                     std::string message = "Array index expressions must have int operand!";
                     ErrorMessage error(message, expr->srcLoc());
@@ -449,7 +448,7 @@ namespace minicc
                 }
                 //      Check variable must be declared as an array for indexing
                 auto type = entry->VarType;
-                if (type.arrayBound() <= 0 && index)
+                if (type.arrayBound() <= 0)
                 {
                     std::string message = "Indexing an non-array variable!";
                     ErrorMessage error(message, expr->srcLoc());
@@ -460,6 +459,10 @@ namespace minicc
         // return ref Type
         if (entry)
         {
+            // If indexing an array, return the primitive type of the array
+            if (ref->isArray()) {
+                return Type(entry->VarType.primitiveType());
+            }
             return entry->VarType;
         }
         return Type(Type::Void);
@@ -483,12 +486,7 @@ namespace minicc
         Type type = verifyVarReference(Errors, expr, (VarReference *)expr->getChild(0));
         Expr *value = (Expr *)expr->getChild(1);
 
-        // TODO: edge case for array indexing
-        // a[10] = 0
-        // a = 0
-        // would it work if we check the primitive type like below? Or are we missing something else
-        // by doing this?
-        if (type.primitiveType() != value->exprType().primitiveType())
+        if (type != value->exprType())
         {
             std::string message = "Variable and the assignment expression do not have the same type!";
             ErrorMessage error(message, expr->srcLoc());
