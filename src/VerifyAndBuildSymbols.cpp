@@ -28,13 +28,9 @@ namespace minicc
             if (child)
             {
                 if (node->isProgram())
-                {
                     child->setRoot((Program *)node);
-                }
                 else
-                {
                     child->setRoot(node->root());
-                }
                 child->setParent(node);
                 child->accept(this);
             }
@@ -145,7 +141,6 @@ namespace minicc
             checkParameters(Errors, entry, func);
             entry->HasBody = true;
         }
-
         //      Check parameters cannot have the same name
         std::set<std::string> names;
         for (size_t i = 0; i < func->numParameters(); i++)
@@ -157,19 +152,25 @@ namespace minicc
                 ErrorMessage error(message, func->srcLoc());
                 Errors.emplace_back(error);
             }
+            names.insert(param->name());
         }
         //      Check the last statement a function body must be return if the return type is not void
         if (func->returnType() != Type(Type::Void) && func->hasBody())
         {
             ScopeStatement *body = func->body();
             // last child of the body should be a return statement
-            ASTNode *lastNode = body->getChild(body->numChildren() - 1);
-            if (!lastNode->isReturn())
-            {
-                std::string message = "The function \"" + func->name() + "()\" need to return a value at its end!";
-                // ErrorMessage error("Function has non-void return type, but the return statement has no returned expression!", func->srcLoc());
-                ErrorMessage error(message, func->srcLoc());
+            if (body->numChildren() == 0) {
+                ErrorMessage error("The function \"" + name + "\"() need a return value at its end!", func->srcLoc());
                 Errors.emplace_back(error);
+            } else {
+                ASTNode *lastNode = body->getChild(body->numChildren() - 1);
+                if (!lastNode->isReturn())
+                {
+                    // std::string message = "The function \"" + func->name() + "()\" need to return a value at its end!";
+                    // ErrorMessage error(message, func->srcLoc());
+                    ErrorMessage error("Function has non-void return type, but the return statement has no returned expression!", func->srcLoc());
+                    Errors.emplace_back(error);
+                }
             }
         }
 
@@ -256,7 +257,6 @@ namespace minicc
         //      Check Non-Void function must have an expression to return
         if (parent->returnType() != Type(Type::Void) && !stmt->hasReturnExpr())
         {
-            // TODO: is this right?
             std::string message = "Function has non-void return type, but the return statement has no returned expression!";
             ErrorMessage error(message, stmt->srcLoc());
             Errors.emplace_back(error);
