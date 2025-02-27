@@ -43,20 +43,20 @@ namespace minicc
         if (prog->syslibFlag())
         {
             FuncSymbolTable *funcTable = prog->funcTable();
-            FuncSymbolEntry getintEntry(Type(Type::Int), std::vector<Type>(), false);
+            FuncSymbolEntry getintEntry(Type(Type::Int), std::vector<Type>(), true);
             funcTable->insert("getint", getintEntry);
 
             std::vector<Type> putintParams;
             putintParams.push_back(Type(Type::Int));
-            FuncSymbolEntry putintEntry(Type(Type::Void), putintParams, false);
+            FuncSymbolEntry putintEntry(Type(Type::Void), putintParams, true);
             funcTable->insert("putint", putintEntry);
 
             std::vector<Type> putcharParams;
             putcharParams.push_back(Type(Type::Char));
-            FuncSymbolEntry putcharacterEntry(Type(Type::Void), putcharParams, false);
+            FuncSymbolEntry putcharacterEntry(Type(Type::Void), putcharParams, true);
             funcTable->insert("putcharacter", putcharacterEntry);
 
-            FuncSymbolEntry putnewlineEntry(Type(Type::Void), std::vector<Type>(), false);
+            FuncSymbolEntry putnewlineEntry(Type(Type::Void), std::vector<Type>(), true);
             funcTable->insert("putnewline", putnewlineEntry);
         }
         this->visitASTNode(prog);
@@ -88,8 +88,25 @@ namespace minicc
         }
     }
 
+    static bool checkMismatchedParameterType(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
+    {
+        bool pass = true;
+        for (size_t i = 0; i < func->numParameters(); i++)
+        {
+            auto parameter = func->parameter(i);
+            if (entry->ParameterTypes[i] != parameter->type())
+            {
+                std::string message = "Definition of function \"" + func->name() + "()\" with different parameter type at position " + std::to_string(i) + "!";
+                ErrorMessage error(message, parameter->srcLoc());
+                Errors.emplace_back(error);
+                pass = false;
+            }
+        }
+        return pass;
+    }
+
     // Check the parameters in entry and func match, i.e. they have the same length and same types
-    static void checkParameters(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
+    static bool checkParameterCount(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
     {
         auto name = func->name();
         if (func->numParameters() != entry->ParameterTypes.size())
@@ -97,45 +114,39 @@ namespace minicc
             std::string message = "Definition of function \"" + name + "()\" with different number of parameters!";
             ErrorMessage error(message, func->srcLoc());
             Errors.emplace_back(error);
+            return false;
         }
-        else
-        {
-            for (size_t i = 0; i < func->numParameters(); i++)
-            {
-                auto parameter = func->parameter(i);
-                if (entry->ParameterTypes[i] != parameter->type())
-                {
-                    std::string message = "Definition of function \"" + name + "()\" with different parameter type at position " + std::to_string(i) + "!";
-                    ErrorMessage error(message, parameter->srcLoc());
-                    Errors.emplace_back(error);
-                }
-            }
-        }
+        return true;
     }
 
-    static void checkReturnType(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
+    static bool checkReturnType(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
     {
         if (func->returnType() != entry->ReturnType)
         {
             std::string message = "Definition of function \"" + func->name() + "()\" with different return type!";
             ErrorMessage error(message, func->srcLoc());
             Errors.emplace_back(error);
+            return false;
         }
+        return true;
     }
 
-    static void checkFuncRedefinition(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
+    static bool checkFuncRedefinition(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
     {
         if (entry->HasBody && func->hasBody())
         {
             std::string message = "Redefinition of function \"" + func->name() + "()\"";
             ErrorMessage error(message, func->srcLoc());
             Errors.emplace_back(error);
+            return false;
         }
+        return true;
     }
 
-    static void checkParamRedefinition(std::vector<ErrorMessage> &Errors, FuncDeclaration *func)
+    static bool checkParamRedefinition(std::vector<ErrorMessage> &Errors, FuncDeclaration *func)
     {
         std::set<std::string> names;
+        bool pass = true;
         for (size_t i = 0; i < func->numParameters(); i++)
         {
             Parameter *param = func->parameter(i);
@@ -144,81 +155,90 @@ namespace minicc
                 std::string message = "Redefinition of variable/parameter \"" + param->name() + "\"in the same scope!";
                 ErrorMessage error(message, func->srcLoc());
                 Errors.emplace_back(error);
+                pass = false;
             }
             names.insert(param->name());
         }
+        return pass;
     }
 
-    static void checkReturnStatement(std::vector<ErrorMessage> &Errors, FuncDeclaration *func)
+    static bool checkReturnStatement(std::vector<ErrorMessage> &Errors, FuncDeclaration *func)
     {
         if (func->returnType() != Type(Type::Void) && func->hasBody())
         {
             ScopeStatement *body = func->body();
-            ASTNode *lastNode = body->getChild(body->numChildren() - 1);
-            if (!lastNode->isReturn()) 
-            {
+            if (body->numChildren() == 0 || !(body->getChild(body->numChildren() - 1)->isReturn())) {
                 ErrorMessage error("The function \"" + func->name() + "()\" need to return a value at its end!", func->srcLoc());
                 Errors.emplace_back(error);
+                return false;
             }
         }
+        return true;
     }
 
-    void insertFunc(FuncSymbolTable *funcTable, FuncSymbolEntry *entry, FuncDeclaration *func)
+    static void insertFunc(FuncSymbolTable *funcTable, FuncSymbolEntry *existingEntry, FuncDeclaration *func)
     {
-        if (entry == nullptr)
+        if (existingEntry)
         {
-            // Insert an entry here
             if (func->hasBody())
-            {
-                ScopeStatement *body = func->body();
-                VarSymbolTable *table = body->scopeVarTable();
-                for (size_t i = 0; i < func->numParameters(); i++)
-                {
-                    auto parameter = func->parameter(i);
-                    VarSymbolEntry entry(parameter->type());
-                    table->insert(parameter->name(), entry);
-                }
-            }
-            std::vector<Type> paraTypes;
-            for (size_t i = 0; i < func->numParameters(); i++)
-            {
-                // Add parameters to the scope
-                auto parameter = func->parameter(i);
-                paraTypes.push_back(parameter->type());
-            }
-            FuncSymbolEntry entry(func->returnType(), paraTypes, func->hasBody());
-            funcTable->insert(func->name(), entry);
+                existingEntry->HasBody = true;
+            return;
         }
+        // Insert an entry here
+        ScopeStatement *body;
+        VarSymbolTable *table;
+        if (func->hasBody()) {
+            body = func->body();
+            table = body->scopeVarTable();
+        }
+
+        std::vector<Type> paraTypes;
+        for (size_t i = 0; i < func->numParameters(); i++)
+        {
+            // Add parameters to the function symbol table
+            auto parameter = func->parameter(i);
+            paraTypes.push_back(parameter->type());
+            
+            // Add parameters to the function scope
+            if (func->hasBody()) {
+                VarSymbolEntry entry(parameter->type());
+                table->insert(parameter->name(), entry);
+            }
+        }
+        FuncSymbolEntry entry(func->returnType(), paraTypes, func->hasBody());
+        funcTable->insert(func->name(), entry);
     }
 
     void VerifyAndBuildSymbols::visitFuncDecl(FuncDeclaration *func)
     {
         // start your code here
         FuncSymbolTable *funcTable = func->root()->funcTable();
-        //       Check there should be only one definition of the function
-        //       Check each parameter type should match with each other
         //  can be declared but cannot be defined again
         auto name = func->name();
         auto entry = funcTable->lookup(name);
-        if (entry != nullptr)
+        bool canInsert = true;
+        if (entry)
         {
             // Hint: Check return type of the function does not match with each other
-            checkReturnType(Errors, entry, func);
-            checkFuncRedefinition(Errors, entry, func);
-            //      Check parameters cannot have the same name
-            checkParameters(Errors, entry, func);
-
-            if (func->hasBody())
-                entry->HasBody = true;
+            bool validReturnType = checkReturnType(Errors, entry, func);
+            //      Check number of parameters should match with each other
+            bool validParamCount = checkParameterCount(Errors, entry, func);
+            //      Check each parameter type should match with each other
+            bool validParamTypes = validParamCount && checkMismatchedParameterType(Errors, entry, func);
+            //      Check there should be only one definition of the function
+            bool notRedefined = checkFuncRedefinition(Errors, entry, func);
+            canInsert = validReturnType && validParamCount && validParamTypes && notRedefined;
         }
 
-        //       Check number of parameters should match with each other
+        //      Check parameters cannot have the same name
         checkParamRedefinition(Errors, func);
 
         //      Check the last statement a function body must be return if the return type is not void
         checkReturnStatement(Errors, func);
 
-        insertFunc(funcTable, entry, func);
+        // Only insert if no conflict
+        if (canInsert)
+            insertFunc(funcTable, entry, func);
 
         this->visitASTNode(func);
     }
@@ -304,7 +324,8 @@ namespace minicc
         // Hint: Check Break statement must appear inside a for/while statement
         auto forParent = stmt->getParentForStatement();
         auto whileParent = stmt->getParentWhileStatement();
-        if (forParent == nullptr && whileParent == nullptr) {
+        if (forParent == nullptr && whileParent == nullptr)
+        {
             std::string message = "Break statement must appear inside a for/while statement!";
             ErrorMessage error(message, stmt->srcLoc());
             Errors.emplace_back(error);
