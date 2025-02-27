@@ -96,6 +96,22 @@ namespace minicc {
             }
         }
 
+        static bool isArithmetic(Expr::ExprOpcode opcode) {
+            return opcode == Expr::Add || opcode == Expr::Sub || 
+                opcode == Expr::Mul || opcode == Expr::Div;
+        }
+
+        static bool isArithmeticComparison(Expr::ExprOpcode opcode) {
+            return opcode == Expr::Greater || opcode == Expr::Less || 
+                opcode == Expr::LessEqual || opcode == Expr::GreaterEqual;            
+        }
+
+        static bool isComparison(Expr::ExprOpcode opcode) {
+            return opcode == Expr::Equal || opcode == Expr::NotEqual || 
+                opcode == Expr::Greater || opcode == Expr::Less || 
+                opcode == Expr::LessEqual || opcode == Expr::GreaterEqual;
+        }
+
         Type exprType() {
             return ExprType;
         }

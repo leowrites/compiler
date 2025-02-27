@@ -88,6 +88,7 @@ namespace minicc
         }
     }
 
+    // Check the parameters in entry and func match, i.e. they have the same length and same types
     static void checkParameters(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
     {
         auto name = func->name();
@@ -112,36 +113,28 @@ namespace minicc
         }
     }
 
-    void VerifyAndBuildSymbols::visitFuncDecl(FuncDeclaration *func)
+    static void checkReturnType(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
     {
-        // start your code here
-        //  TODO: check if any path can cause segfault
-        FuncSymbolTable *funcTable = func->root()->funcTable();
-        // Hint: Check return type of the function does not match with each other
-        //       Check number of parameters should match with each other
-        //       Check each parameter type should match with each other
-        //       Check there should be only one definition of the function
-        //  can be declared but cannot be defined again
-        auto name = func->name();
-        auto entry = funcTable->lookup(name);
-        if (entry != nullptr)
+        if (func->returnType() != entry->ReturnType)
         {
-            if (entry->HasBody && func->hasBody())
-            {
-                std::string message = "Redefinition of function \"" + name + "()\"";
-                ErrorMessage error(message, func->srcLoc());
-                Errors.emplace_back(error);
-            }
-            if (func->returnType() != entry->ReturnType)
-            {
-                std::string message = "Definition of function \"" + name + "()\" with different return type!";
-                ErrorMessage error(message, func->srcLoc());
-                Errors.emplace_back(error);
-            }
-            checkParameters(Errors, entry, func);
-            entry->HasBody = true;
+            std::string message = "Definition of function \"" + func->name() + "()\" with different return type!";
+            ErrorMessage error(message, func->srcLoc());
+            Errors.emplace_back(error);
         }
-        //      Check parameters cannot have the same name
+    }
+
+    static void checkFuncRedefinition(std::vector<ErrorMessage> &Errors, FuncSymbolEntry *entry, FuncDeclaration *func)
+    {
+        if (entry->HasBody && func->hasBody())
+        {
+            std::string message = "Redefinition of function \"" + func->name() + "()\"";
+            ErrorMessage error(message, func->srcLoc());
+            Errors.emplace_back(error);
+        }
+    }
+
+    static void checkParamRedefinition(std::vector<ErrorMessage> &Errors, FuncDeclaration *func)
+    {
         std::set<std::string> names;
         for (size_t i = 0; i < func->numParameters(); i++)
         {
@@ -154,26 +147,24 @@ namespace minicc
             }
             names.insert(param->name());
         }
-        //      Check the last statement a function body must be return if the return type is not void
+    }
+
+    static void checkReturnStatement(std::vector<ErrorMessage> &Errors, FuncDeclaration *func)
+    {
         if (func->returnType() != Type(Type::Void) && func->hasBody())
         {
             ScopeStatement *body = func->body();
-            // last child of the body should be a return statement
-            if (body->numChildren() == 0) {
-                ErrorMessage error("The function \"" + name + "\"() need a return value at its end!", func->srcLoc());
+            ASTNode *lastNode = body->getChild(body->numChildren() - 1);
+            if (!lastNode->isReturn()) 
+            {
+                ErrorMessage error("The function \"" + func->name() + "()\" need to return a value at its end!", func->srcLoc());
                 Errors.emplace_back(error);
-            } else {
-                ASTNode *lastNode = body->getChild(body->numChildren() - 1);
-                if (!lastNode->isReturn())
-                {
-                    // std::string message = "The function \"" + func->name() + "()\" need to return a value at its end!";
-                    // ErrorMessage error(message, func->srcLoc());
-                    ErrorMessage error("Function has non-void return type, but the return statement has no returned expression!", func->srcLoc());
-                    Errors.emplace_back(error);
-                }
             }
         }
+    }
 
+    void insertFunc(FuncSymbolTable *funcTable, FuncSymbolEntry *entry, FuncDeclaration *func)
+    {
         if (entry == nullptr)
         {
             // Insert an entry here
@@ -196,8 +187,39 @@ namespace minicc
                 paraTypes.push_back(parameter->type());
             }
             FuncSymbolEntry entry(func->returnType(), paraTypes, func->hasBody());
-            funcTable->insert(name, entry);
+            funcTable->insert(func->name(), entry);
         }
+    }
+
+    void VerifyAndBuildSymbols::visitFuncDecl(FuncDeclaration *func)
+    {
+        // start your code here
+        FuncSymbolTable *funcTable = func->root()->funcTable();
+        //       Check there should be only one definition of the function
+        //       Check each parameter type should match with each other
+        //  can be declared but cannot be defined again
+        auto name = func->name();
+        auto entry = funcTable->lookup(name);
+        if (entry != nullptr)
+        {
+            // Hint: Check return type of the function does not match with each other
+            checkReturnType(Errors, entry, func);
+            checkFuncRedefinition(Errors, entry, func);
+            //      Check parameters cannot have the same name
+            checkParameters(Errors, entry, func);
+
+            if (func->hasBody())
+                entry->HasBody = true;
+        }
+
+        //       Check number of parameters should match with each other
+        checkParamRedefinition(Errors, func);
+
+        //      Check the last statement a function body must be return if the return type is not void
+        checkReturnStatement(Errors, func);
+
+        insertFunc(funcTable, entry, func);
+
         this->visitASTNode(func);
     }
 
@@ -262,7 +284,8 @@ namespace minicc
             Errors.emplace_back(error);
         }
         //      Check the return type and the returned expression type must match
-        if (parent->returnType() != Type(Type::Void)) {
+        if (parent->returnType() != Type(Type::Void))
+        {
             Expr *expr = stmt->returnExpr();
             if (parent->returnType() != expr->exprType())
             {
@@ -281,15 +304,8 @@ namespace minicc
         // Hint: Check Break statement must appear inside a for/while statement
         auto forParent = stmt->getParentForStatement();
         auto whileParent = stmt->getParentWhileStatement();
-        // if (forParent == nullptr && whileParent == nullptr) {
-        //     std::string message = "Break statement must appear inside a for/while statement!";
-        //     ErrorMessage error(message, stmt->srcLoc());
-        //     Errors.emplace_back(error);
-        // }
-        // TODO: revert this?
-        if (forParent == nullptr && whileParent == nullptr)
-        {
-            std::string message = "Break statement must appear inside a for statement!";
+        if (forParent == nullptr && whileParent == nullptr) {
+            std::string message = "Break statement must appear inside a for/while statement!";
             ErrorMessage error(message, stmt->srcLoc());
             Errors.emplace_back(error);
         }
@@ -304,19 +320,19 @@ namespace minicc
         auto child = (Expr *)expr->getChild(0);
         if (opcode == Expr::Sub)
         {
-            expr->setExprType(Type(Type::Int));
+            expr->setExprType(child->exprType());
         }
         if (opcode == Expr::Not)
         {
-            expr->setExprType(Type(Type::Bool));
+            expr->setExprType(child->exprType());
         }
-        if (opcode == Expr::ExprOpcode::Not && child->exprType().primitiveType() != Type::PrimitiveTypeEnum::Bool)
+        if (opcode == Expr::ExprOpcode::Not && (child->exprType() != Type(Type::Bool)))
         {
             ErrorMessage error("Not \"!\" opcode must have bool operand!", expr->srcLoc());
             Errors.emplace_back(error);
         }
         // Hint: Check Negate opcode must have int operand!
-        if (opcode == Expr::ExprOpcode::Sub && child->exprType().primitiveType() != Type::PrimitiveTypeEnum::Int)
+        if (opcode == Expr::ExprOpcode::Sub && (child->exprType() != Type(Type::Int)))
         {
             ErrorMessage error("Negate \"-\" opcode must have int operand!", expr->srcLoc());
             Errors.emplace_back(error);
@@ -332,8 +348,6 @@ namespace minicc
         auto expr1 = (Expr *)expr->getChild(0);
         auto expr2 = (Expr *)expr->getChild(1);
 
-        bool hasError = false;
-
         Type boolType(Type::Bool);
         Type intType(Type::Int);
         Type voidType(Type::Void);
@@ -345,7 +359,6 @@ namespace minicc
             std::string message = "\"&&\"/\"||\" opcode must have bool operand!";
             ErrorMessage error(message, expr->srcLoc());
             Errors.emplace_back(error);
-            hasError = true;
         }
         // Check that for equal and not equal opcode, both operand need to be the same primitive types
         if ((opcode == Expr::Equal || opcode == Expr::NotEqual) &&
@@ -354,29 +367,24 @@ namespace minicc
             std::string message = "\"==\"/\"!=\" opcode must have same primitive type operand!";
             ErrorMessage error(message, expr->srcLoc());
             Errors.emplace_back(error);
-            hasError = true;
         }
         // Check that for arithmetic and other comparison operand, both operand need to be int
-        if ((opcode == Expr::Less || opcode == Expr::LessEqual || opcode == Expr::Greater || opcode == Expr::GreaterEqual ||
-             opcode == Expr::Add || opcode == Expr::Sub || opcode == Expr::Mul || opcode == Expr::Div) &&
+        if ((Expr::isArithmeticComparison(opcode) || Expr::isArithmetic(opcode)) &&
             (expr1->exprType() != intType || expr2->exprType() != intType))
         {
             auto operand = Expr::opcodeToString(opcode);
             std::string message = "\"" + operand + "\"" + " opcode must have int type operand!";
             ErrorMessage error(message, expr->srcLoc());
             Errors.emplace_back(error);
-            hasError = true;
         }
 
-        if (hasError)
-            expr->setExprType(voidType);
+        // ==, !=, >, <, >=, <= always has boolean types
+        // Other operators inherit type of the first operand
+
+        if (Expr::isComparison(opcode))
+            expr->setExprType(boolType);
         else
-        {
-            if (opcode == Expr::Add || opcode == Expr::Sub || opcode == Expr::Div || opcode == Expr::Mul)
-                expr->setExprType(intType);
-            else
-                expr->setExprType(boolType);
-        }
+            expr->setExprType(expr1->exprType());
     }
 
     void VerifyAndBuildSymbols::visitCallExpr(CallExpr *expr)
@@ -422,6 +430,8 @@ namespace minicc
     {
         // start your code here
         // Hint: Check the vairable which is reference must be declared before
+        // Referencing undefined variable -> return void type
+        // Indexing non-array type, result should be the same type as type
         auto name = ref->identifier()->name();
         auto table = ref->locateDeclaringTableForVar(name);
         VarSymbolEntry *entry = nullptr;
@@ -460,7 +470,8 @@ namespace minicc
         if (entry)
         {
             // If indexing an array, return the primitive type of the array
-            if (ref->isArray()) {
+            if (ref->isArray())
+            {
                 return Type(entry->VarType.primitiveType());
             }
             return entry->VarType;
