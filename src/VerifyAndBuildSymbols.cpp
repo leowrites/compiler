@@ -167,7 +167,8 @@ namespace minicc
         if (func->returnType() != Type(Type::Void) && func->hasBody())
         {
             ScopeStatement *body = func->body();
-            if (body->numChildren() == 0 || !(body->getChild(body->numChildren() - 1)->isReturn())) {
+            if (body->numChildren() == 0 || !(body->getChild(body->numChildren() - 1)->isReturn()))
+            {
                 ErrorMessage error("The function \"" + func->name() + "()\" need to return a value at its end!", func->srcLoc());
                 Errors.emplace_back(error);
                 return false;
@@ -187,7 +188,8 @@ namespace minicc
         // Insert an entry here
         ScopeStatement *body;
         VarSymbolTable *table;
-        if (func->hasBody()) {
+        if (func->hasBody())
+        {
             body = func->body();
             table = body->scopeVarTable();
         }
@@ -198,9 +200,10 @@ namespace minicc
             // Add parameters to the function symbol table
             auto parameter = func->parameter(i);
             paraTypes.push_back(parameter->type());
-            
+
             // Add parameters to the function scope
-            if (func->hasBody()) {
+            if (func->hasBody())
+            {
                 VarSymbolEntry entry(parameter->type());
                 table->insert(parameter->name(), entry);
             }
