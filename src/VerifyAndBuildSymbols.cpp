@@ -135,7 +135,7 @@ namespace minicc
     {
         if (entry->HasBody && func->hasBody())
         {
-            std::string message = "Redefinition of function \"" + func->name() + "()\"";
+            std::string message = "Redefinition of function \"" + func->name() + "()\"!";
             ErrorMessage error(message, func->srcLoc());
             Errors.emplace_back(error);
             return false;
@@ -423,7 +423,7 @@ namespace minicc
         FuncSymbolEntry *entry = table->lookup(name);
         if (entry == nullptr)
         {
-            std::string message = "Function \"" + name + "()\" is not declared before use!";
+            std::string message = "Function " + name + "() is not declared before use!";
             ErrorMessage error(message, expr->srcLoc());
             Errors.emplace_back(error);
             return;
@@ -433,7 +433,7 @@ namespace minicc
 
         if (expr->numArgs() != entry->ParameterTypes.size())
         {
-            std::string message = "Function \"" + name + "()\" is declared with " + std::to_string(entry->ParameterTypes.size()) +
+            std::string message = "Function " + name + "() is declared with " + std::to_string(entry->ParameterTypes.size()) +
                                   " parameters but called with " + std::to_string(expr->numArgs()) + " arguments!";
             ErrorMessage error(message, expr->srcLoc());
             Errors.emplace_back(error);
@@ -535,11 +535,12 @@ namespace minicc
         // Hint: Check Integer literal must be inside the range of int
         this->visitASTNode(literal);
         int value = literal->value();
-        if (value < INT32_MIN || value > INT32_MAX)
+        if (literal->exprType() == Type(Type::Void))
         {
             std::string message = "Integer literal must be inside the range of int!";
             ErrorMessage error(message, literal->srcLoc());
             Errors.emplace_back(error);
+            literal->setExprType(Type(Type::Int));
         }
     }
 
