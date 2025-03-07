@@ -4,3 +4,4 @@ cmake-build-debug
 tester/__pycache__/
 tester/tester.out
 .vscode
+grammars/.antlr/*
