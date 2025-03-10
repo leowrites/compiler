@@ -19,14 +19,21 @@ namespace minicc {
         std::unique_ptr<llvm::IRBuilder<>> TheBuilder;
         std::string ModuleName;
 
-        //add your variables and member functions
+        std::map<Expr*, llvm::Value*> LLVMValueForExpr;
 
+        //add your variables and member functions
+        // Is named value supposed to map from name of variables to the llvm value?
+        llvm::Type* miniccTypeTollvmTypePrimitive(minicc::Type type);
+        llvm::Type* miniccTypeTollvmType(minicc::Type type);
     public:
         //modify if needed
         explicit IRGenerator(const std::string moduleName) : ASTVisitor(), TheModule(), TheBuilder(), ModuleName(moduleName){
             TheContext = std::make_unique<llvm::LLVMContext>();
         }
 
+        static llvm::AllocaInst * CreateEntryBlockAlloca(llvm::Function *function, 
+            std::string name, llvm::Type* type);
+        
         std::unique_ptr<llvm::Module> getModule() {
             TheBuilder.reset();
             return std::move(TheModule);
