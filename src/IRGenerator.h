@@ -20,6 +20,7 @@ namespace minicc {
         std::string ModuleName;
 
         std::map<Expr*, llvm::Value*> LLVMValueForExpr;
+        std::vector<llvm::BasicBlock*> LoopExitStack;
 
         //add your variables and member functions
         // Is named value supposed to map from name of variables to the llvm value?

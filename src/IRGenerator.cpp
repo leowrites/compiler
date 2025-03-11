@@ -223,6 +223,9 @@ namespace minicc
         auto condBB = llvm::BasicBlock::Create(*TheContext, "cond", function);
         auto bodyBB = llvm::BasicBlock::Create(*TheContext, "body", function);
         auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
+
+        LoopExitStack.emplace_back(outBB);
+        
         stmt->initExpr()->accept(this);
         
         TheBuilder->CreateBr(condBB);
@@ -233,10 +236,16 @@ namespace minicc
         
         TheBuilder->SetInsertPoint(bodyBB);
         stmt->body()->accept(this);
-        stmt->iterExpr()->accept(this);
-        TheBuilder->CreateBr(condBB);
+        // If there is a break here, stop?
+        
+        if (!TheBuilder->GetInsertBlock()->getTerminator()) {
+            stmt->iterExpr()->accept(this);
+            TheBuilder->CreateBr(condBB);
+        }
         
         TheBuilder->SetInsertPoint(outBB);
+        // TODO: where should this go?
+        LoopExitStack.pop_back();
     }
     
     void IRGenerator::visitWhileStmt(WhileStatement *stmt)
@@ -246,16 +255,22 @@ namespace minicc
         auto condBB = llvm::BasicBlock::Create(*TheContext, "cond", function);
         auto bodyBB = llvm::BasicBlock::Create(*TheContext, "body", function);
         auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
+        LoopExitStack.emplace_back(outBB);
+        
         TheBuilder->CreateBr(condBB);
         TheBuilder->SetInsertPoint(condBB);
         stmt->condExpr()->accept(this);
         assert(LLVMValueForExpr[stmt->condExpr()]);
         TheBuilder->CreateCondBr(LLVMValueForExpr[stmt->condExpr()], bodyBB, outBB);
+        
         TheBuilder->SetInsertPoint(bodyBB);
         stmt->body()->accept(this);
-        TheBuilder->CreateBr(condBB);
+        if (!TheBuilder->GetInsertBlock()->getTerminator()) {
+            TheBuilder->CreateBr(condBB);
+        }
         
         TheBuilder->SetInsertPoint(outBB);
+        LoopExitStack.pop_back();
     }
 
     void IRGenerator::visitReturnStmt(ReturnStatement *stmt)
@@ -273,8 +288,9 @@ namespace minicc
 
     void IRGenerator::visitBreakStmt(BreakStatement *stmt)
     {
-
         // start your code here
+        assert(LoopExitStack.back());
+        TheBuilder->CreateBr(LoopExitStack.back());
     }
 
     void IRGenerator::visitUnaryExpr(UnaryExpr *expr)
