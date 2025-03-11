@@ -178,6 +178,7 @@ namespace minicc
         // • If having body but no return expr in void function, create a void
         // return for it. Check if BB has a return
         auto currentBB = TheBuilder->GetInsertBlock();
+        // This is getting inserted to the wrong block
         if (!currentBB->getTerminator())
         {
             TheBuilder->CreateRetVoid();
@@ -189,26 +190,90 @@ namespace minicc
     void IRGenerator::visitIfStmt(IfStatement *stmt)
     {
         // start your code here
+        llvm::Function *function = TheBuilder->GetInsertBlock()->getParent();
+        // llvm::BasicBlock *slowBB = llvm::BasicBlock::Create(*TheContext, "slow", function);
+        auto thenBB = llvm::BasicBlock::Create(*TheContext, "then", function);
+        llvm::BasicBlock *elseBB;
+        if (stmt->hasElse()) {
+            elseBB = llvm::BasicBlock::Create(*TheContext, "else", function);
+        }
+        // Should this be inserted before the inner blocks are created?
+        auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
+        
+        stmt->condExpr()->accept(this);
+        auto condVal = LLVMValueForExpr[stmt->condExpr()];
+        TheBuilder->CreateCondBr(condVal, thenBB, stmt->hasElse() ? elseBB : outBB);
+        
+        TheBuilder->SetInsertPoint(thenBB);
+        stmt->thenStmt()->accept(this);
+        TheBuilder->CreateBr(outBB);
+
+        if (stmt->hasElse()) {
+            TheBuilder->SetInsertPoint(elseBB);
+            stmt->elseStmt()->accept(this);
+            TheBuilder->CreateBr(outBB);
+        }
+        TheBuilder->SetInsertPoint(outBB);
     }
 
     void IRGenerator::visitForStmt(ForStatement *stmt)
     {
         // start your code here
+        auto function = TheBuilder->GetInsertBlock()->getParent();
+        auto condBB = llvm::BasicBlock::Create(*TheContext, "cond", function);
+        auto bodyBB = llvm::BasicBlock::Create(*TheContext, "body", function);
+        auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
+        stmt->initExpr()->accept(this);
+        
+        TheBuilder->CreateBr(condBB);
+        TheBuilder->SetInsertPoint(condBB);
+        stmt->condExpr()->accept(this);
+        assert(LLVMValueForExpr[stmt->condExpr()]);
+        TheBuilder->CreateCondBr(LLVMValueForExpr[stmt->condExpr()], bodyBB, outBB);
+        
+        TheBuilder->SetInsertPoint(bodyBB);
+        stmt->body()->accept(this);
+        stmt->iterExpr()->accept(this);
+        TheBuilder->CreateBr(condBB);
+        
+        TheBuilder->SetInsertPoint(outBB);
     }
-
+    
     void IRGenerator::visitWhileStmt(WhileStatement *stmt)
     {
         // start your code here
+        auto function = TheBuilder->GetInsertBlock()->getParent();
+        auto condBB = llvm::BasicBlock::Create(*TheContext, "cond", function);
+        auto bodyBB = llvm::BasicBlock::Create(*TheContext, "body", function);
+        auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
+        TheBuilder->CreateBr(condBB);
+        TheBuilder->SetInsertPoint(condBB);
+        stmt->condExpr()->accept(this);
+        assert(LLVMValueForExpr[stmt->condExpr()]);
+        TheBuilder->CreateCondBr(LLVMValueForExpr[stmt->condExpr()], bodyBB, outBB);
+        TheBuilder->SetInsertPoint(bodyBB);
+        stmt->body()->accept(this);
+        TheBuilder->CreateBr(condBB);
+        
+        TheBuilder->SetInsertPoint(outBB);
     }
 
     void IRGenerator::visitReturnStmt(ReturnStatement *stmt)
     {
         // start your code here
+        if (!stmt->hasReturnExpr()) {
+            TheBuilder->CreateRetVoid();
+            return;
+        }
+        Expr *expr = stmt->returnExpr();
+        expr->accept(this);
+        assert(LLVMValueForExpr[expr]);
+        TheBuilder->CreateRet(LLVMValueForExpr[expr]);
     }
 
     void IRGenerator::visitBreakStmt(BreakStatement *stmt)
     {
-        
+
         // start your code here
     }
 
