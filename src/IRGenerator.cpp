@@ -83,6 +83,30 @@ namespace minicc
     void IRGenerator::visitVarDecl(VarDeclaration *decl)
     {
         // start your code here
+        // How to know if a declaration is local or global?
+        // For each of the variables (since there can be multiple declared), 
+        // need to create global variable for them
+        // variable = llvm::GlobalVariable(*TheModule, miniccTypeTollvmType(decl->declType()),
+        // false, llvm::GlobalVariable::CommonLinkage, nullptr, decl->
+        auto parent = decl->getParent();
+        auto table = decl->getParentScope()->scopeVarTable();
+        auto parentBB = TheBuilder->GetInsertBlock()->getParent();
+        for (size_t i = 0; i < decl->numVarReferences(); i++)
+        {
+            VarReference *ref = (VarReference *)decl->varReference(i);
+            
+            auto name = ref->identifier()->name();
+            auto type = miniccTypeTollvmType(Type(decl->declType(), ref->isArray()));
+            
+            VarSymbolEntry *entry = table->lookup(name);
+            // TODO: support array
+            if (parent->isProgram()) {
+                entry->LLVMValue = new llvm::GlobalVariable(*TheModule, type, false, 
+                    llvm::GlobalVariable::CommonLinkage, nullptr, name);
+            } else {
+                entry->LLVMValue = CreateEntryBlockAlloca(parentBB, name, type);
+            }
+        }
     }
 
     void IRGenerator::visitFuncDecl(FuncDeclaration *func)
@@ -118,9 +142,10 @@ namespace minicc
         llvm::BasicBlock *BB = llvm::BasicBlock::Create(*TheContext, "entry", function);
         TheBuilder->SetInsertPoint(BB);
 
+        auto table = func->body()->scopeVarTable();
+
         // allocate params
         for (int i = 0; i < func->numParameters(); i++) {
-            // TODO: may need to store this somewhere
             auto param = func->parameter(i);
             llvm::Value *alloc = CreateEntryBlockAlloca(function, param->name(), 
                 funcType->getParamType(i));
@@ -130,6 +155,8 @@ namespace minicc
                 TheBuilder->CreateStore(arg, alloc);
                 // symbolTable[param->name()] = alloc; // Store in a symbol table (e.g., std::map<std::string, llvm::Value*>)
             }
+            
+            table->lookup(param->name())->LLVMValue = alloc;
         }
         
         // • If having body, a entry basic block should be created for the function
@@ -190,11 +217,39 @@ namespace minicc
     void IRGenerator::visitVarExpr(VarExpr *expr)
     {
         // start your code here
+        // Look up symbol table?
+        auto ref = (VarReference *)expr->getChild(0);
+        auto table = expr->locateDeclaringTableForVar(ref->identifier()->name());
+        llvm::Value *value = table->lookup(ref->identifier()->name())->LLVMValue;
+
+        // Are we supposed to be doing this?
+        if (LLVMValueForExpr.find(expr) == LLVMValueForExpr.end()) {
+            LLVMValueForExpr[expr] = value;
+        }
+        assert(value);
+        
+        // TODO: need to use CreateGEP for array
+        // if (expr->exprType().arrayBound > 0) {
+        //     TheBuilder::CreateGEP()
+        // }
+        TheBuilder->CreateLoad(miniccTypeTollvmType(expr->exprType()), value);
     }
 
     void IRGenerator::visitAssignmentExpr(AssignmentExpr *expr)
     {
+        // • Get variable llvm::Value
+        // • CreateGEP if it is array.
+        // • CreateStore to assign the right value to the variable.
         // start your code here
+        expr->getChild(1)->accept(this);
+        VarReference *reference = (VarReference *)expr->getChild(0);
+        VarSymbolTable *table = expr->locateDeclaringTableForVar(reference->identifier()->name());
+        assert(table);
+        VarSymbolEntry *entry = table->lookup(reference->identifier()->name());
+        assert(entry);
+        assert(entry->LLVMValue);
+        assert(LLVMValueForExpr[(Expr *)expr->getChild(1)]);
+        TheBuilder->CreateStore(LLVMValueForExpr[(Expr *)expr->getChild(1)], entry->LLVMValue);
     }
     
     void IRGenerator::visitIntLiteralExpr(IntLiteralExpr *literal)
@@ -227,6 +282,17 @@ namespace minicc
     void IRGenerator::visitScope(ScopeStatement *stmt)
     {
         // start your code here
+        // Before visiting child nodes, note that there may be a "return" statement in the middle of a scope.
+        // Do we need to do anything if there is a return in the middle of a scope?
+        // Just stop?
+        llvm::BasicBlock *currentBB = TheBuilder->GetInsertBlock();
+        for (int i = 0; i < stmt->numChildren(); i++) {
+            auto child = stmt->getChild(i);
+            child->accept(this);
+            if (currentBB->getTerminator()) {
+                break;
+            }
+        }
     }
 
 }
