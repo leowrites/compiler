@@ -26,14 +26,20 @@ namespace minicc {
         // Is named value supposed to map from name of variables to the llvm value?
         llvm::Type* miniccTypeTollvmTypePrimitive(minicc::Type type);
         llvm::Type* miniccTypeTollvmType(minicc::Type type);
+        
+        static llvm::AllocaInst * CreateEntryBlockAlloca(llvm::Function *function, 
+            std::string name, llvm::Type* type);
+        
+        void checkTerminatorAndCreateBr(llvm::BasicBlock* bb) {
+            if (!TheBuilder->GetInsertBlock()->getTerminator())
+                TheBuilder->CreateBr(bb);
+        }
     public:
         //modify if needed
         explicit IRGenerator(const std::string moduleName) : ASTVisitor(), TheModule(), TheBuilder(), ModuleName(moduleName){
             TheContext = std::make_unique<llvm::LLVMContext>();
         }
 
-        static llvm::AllocaInst * CreateEntryBlockAlloca(llvm::Function *function, 
-            std::string name, llvm::Type* type);
         
         std::unique_ptr<llvm::Module> getModule() {
             TheBuilder.reset();

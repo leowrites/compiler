@@ -206,12 +206,13 @@ namespace minicc
         
         TheBuilder->SetInsertPoint(thenBB);
         stmt->thenStmt()->accept(this);
-        TheBuilder->CreateBr(outBB);
+        // there could be a terminator inside, TODO: check other places
+        checkTerminatorAndCreateBr(outBB);
 
         if (stmt->hasElse()) {
             TheBuilder->SetInsertPoint(elseBB);
             stmt->elseStmt()->accept(this);
-            TheBuilder->CreateBr(outBB);
+            checkTerminatorAndCreateBr(outBB);
         }
         TheBuilder->SetInsertPoint(outBB);
     }
@@ -240,7 +241,7 @@ namespace minicc
         
         if (!TheBuilder->GetInsertBlock()->getTerminator()) {
             stmt->iterExpr()->accept(this);
-            TheBuilder->CreateBr(condBB);
+            checkTerminatorAndCreateBr(condBB);
         }
         
         TheBuilder->SetInsertPoint(outBB);
@@ -265,9 +266,7 @@ namespace minicc
         
         TheBuilder->SetInsertPoint(bodyBB);
         stmt->body()->accept(this);
-        if (!TheBuilder->GetInsertBlock()->getTerminator()) {
-            TheBuilder->CreateBr(condBB);
-        }
+        checkTerminatorAndCreateBr(condBB);
         
         TheBuilder->SetInsertPoint(outBB);
         LoopExitStack.pop_back();
@@ -413,7 +412,7 @@ namespace minicc
             assert(LLVMValueForExpr[expr->arg(i)]);
             argsV.emplace_back(LLVMValueForExpr[expr->arg(i)]);
         }
-        TheBuilder->CreateCall(func, argsV);
+        LLVMValueForExpr[expr] = TheBuilder->CreateCall(func, argsV);
     }
 
     void IRGenerator::visitVarExpr(VarExpr *expr)
@@ -483,17 +482,15 @@ namespace minicc
         // Before visiting child nodes, note that there may be a "return" statement in the middle of a scope.
         // Do we need to do anything if there is a return in the middle of a scope?
         // Just stop?
-        llvm::BasicBlock *currentBB = TheBuilder->GetInsertBlock();
+        llvm::BasicBlock *currentBB;
         for (int i = 0; i < stmt->numChildren(); i++)
         {
             auto child = stmt->getChild(i);
             child->accept(this);
-            // TODO: this is causing early termination, should the block have a terminator?
-            // if (currentBB->getTerminator())
-            // {
-            //     std::cout << "Encountered return at child " + std::to_string(i) << std::endl;
-            //     break;
-            // }
+            // If there is a terminator here, we should not continue
+            currentBB = TheBuilder->GetInsertBlock();
+            if (currentBB->getTerminator())
+                break;
         }
     }
 
