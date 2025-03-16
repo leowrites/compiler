@@ -82,7 +82,13 @@ namespace minicc
                 ErrorMessage error(message, ref->srcLoc());
                 Errors.emplace_back(error);
             }
-            Type type(decl->declType(), ref->isArray());
+            Type type;
+            if (ref->isArray()) {
+                auto *bound = dynamic_cast<IntLiteralExpr*>(ref->indexExpr());
+                type = Type(decl->declType(), bound->value());
+            } else {
+                type = Type(decl->declType());
+            }
             VarSymbolEntry entry(type);
             table->insert(name, entry);
         }

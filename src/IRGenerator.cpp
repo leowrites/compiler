@@ -94,19 +94,23 @@ namespace minicc
         // start your code here
         auto parent = decl->getParent();
         auto table = decl->getParentScope()->scopeVarTable();
-        auto parentBB = TheBuilder->GetInsertBlock()->getParent();
+        llvm::Function *parentBB = nullptr;
+        if (TheBuilder->GetInsertBlock()) {
+            parentBB = TheBuilder->GetInsertBlock()->getParent();
+        }
         for (size_t i = 0; i < decl->numVarReferences(); i++)
         {
-            VarReference *ref = (VarReference *)decl->varReference(i);
+            VarReference *ref = decl->varReference(i);
 
             auto name = ref->identifier()->name();
-            auto type = miniccTypeTollvmType(Type(decl->declType(), ref->isArray()));
-
             VarSymbolEntry *entry = table->lookup(name);
-            // TODO: support array
-            if (parent->isProgram())
+            auto type = miniccTypeTollvmType(Type(decl->declType(), entry->VarType.arrayBound()));
+
+            if (!parentBB) {
+                llvm::Constant* initializer = llvm::Constant::getNullValue(type);
                 entry->LLVMValue = new llvm::GlobalVariable(*TheModule, type, false,
-                                                            llvm::GlobalVariable::CommonLinkage, nullptr, name);
+                                            llvm::GlobalVariable::CommonLinkage, initializer, name);
+            }
             else {
                 llvm::Value *arraySize = nullptr;
                 if (ref->isArray()) {
