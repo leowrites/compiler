@@ -28,7 +28,7 @@ namespace minicc {
         llvm::Type* miniccTypeTollvmType(minicc::Type type);
         
         static llvm::AllocaInst * CreateEntryBlockAlloca(llvm::Function *function, 
-            std::string name, llvm::Type* type);
+            std::string name, llvm::Type* type, llvm::Value *arraySize);
         
         void checkTerminatorAndCreateBr(llvm::BasicBlock* bb) {
             if (!TheBuilder->GetInsertBlock()->getTerminator())

@@ -10,6 +10,7 @@
 #include "Program.h"
 #include "Exprs.h"
 #include "Statements.h"
+#include "iostream"
 
 namespace minicc
 {
@@ -40,12 +41,12 @@ namespace minicc
 
     // Code from LLVM tutorial, used to allocate on the stack
     llvm::AllocaInst *IRGenerator::CreateEntryBlockAlloca(llvm::Function *function, std::string name,
-                                                          llvm::Type *type)
+                                                          llvm::Type *type, llvm::Value *arraySize)
     {
         assert(function);
         assert(type);
         llvm::IRBuilder<> TmpB(&function->getEntryBlock(), function->getEntryBlock().begin());
-        return TmpB.CreateAlloca(type, nullptr, name);
+        return TmpB.CreateAlloca(type, arraySize, name);
     }
 
     void IRGenerator::visitProgram(Program *prog)
@@ -91,11 +92,6 @@ namespace minicc
     void IRGenerator::visitVarDecl(VarDeclaration *decl)
     {
         // start your code here
-        // How to know if a declaration is local or global?
-        // For each of the variables (since there can be multiple declared),
-        // need to create global variable for them
-        // variable = llvm::GlobalVariable(*TheModule, miniccTypeTollvmType(decl->declType()),
-        // false, llvm::GlobalVariable::CommonLinkage, nullptr, decl->
         auto parent = decl->getParent();
         auto table = decl->getParentScope()->scopeVarTable();
         auto parentBB = TheBuilder->GetInsertBlock()->getParent();
@@ -111,8 +107,14 @@ namespace minicc
             if (parent->isProgram())
                 entry->LLVMValue = new llvm::GlobalVariable(*TheModule, type, false,
                                                             llvm::GlobalVariable::CommonLinkage, nullptr, name);
-            else
-                entry->LLVMValue = CreateEntryBlockAlloca(parentBB, name, type);
+            else {
+                llvm::Value *arraySize = nullptr;
+                if (ref->isArray()) {
+                    ref->indexExpr()->accept(this);
+                    arraySize = LLVMValueForExpr[ref->indexExpr()];
+                }
+                entry->LLVMValue = CreateEntryBlockAlloca(parentBB, name, type, arraySize);
+            }
         }
     }
 
@@ -157,13 +159,13 @@ namespace minicc
         {
             auto param = func->parameter(i);
             llvm::Value *alloc = CreateEntryBlockAlloca(function, param->name(),
-                                                        funcType->getParamType(i));
+                                                        funcType->getParamType(i), nullptr);
             if (alloc)
             {
                 llvm::Argument *arg = function->arg_begin() + i;
                 arg->setName(param->name());
                 TheBuilder->CreateStore(arg, alloc);
-                // symbolTable[param->name()] = alloc; // Store in a symbol table (e.g., std::map<std::string, llvm::Value*>)
+                // Store in a symbol table (e.g., std::map<std::string, llvm::Value*>)
             }
 
             table->lookup(param->name())->LLVMValue = alloc;
@@ -199,11 +201,11 @@ namespace minicc
         }
         // Should this be inserted before the inner blocks are created?
         auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
-        
+
         stmt->condExpr()->accept(this);
         auto condVal = LLVMValueForExpr[stmt->condExpr()];
         TheBuilder->CreateCondBr(condVal, thenBB, stmt->hasElse() ? elseBB : outBB);
-        
+
         TheBuilder->SetInsertPoint(thenBB);
         stmt->thenStmt()->accept(this);
         // there could be a terminator inside, TODO: check other places
@@ -226,29 +228,29 @@ namespace minicc
         auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
 
         LoopExitStack.emplace_back(outBB);
-        
+
         stmt->initExpr()->accept(this);
-        
+
         TheBuilder->CreateBr(condBB);
         TheBuilder->SetInsertPoint(condBB);
         stmt->condExpr()->accept(this);
         assert(LLVMValueForExpr[stmt->condExpr()]);
         TheBuilder->CreateCondBr(LLVMValueForExpr[stmt->condExpr()], bodyBB, outBB);
-        
+
         TheBuilder->SetInsertPoint(bodyBB);
         stmt->body()->accept(this);
         // If there is a break here, stop?
-        
+
         if (!TheBuilder->GetInsertBlock()->getTerminator()) {
             stmt->iterExpr()->accept(this);
             checkTerminatorAndCreateBr(condBB);
         }
-        
+
         TheBuilder->SetInsertPoint(outBB);
         // TODO: where should this go?
         LoopExitStack.pop_back();
     }
-    
+
     void IRGenerator::visitWhileStmt(WhileStatement *stmt)
     {
         // start your code here
@@ -257,17 +259,17 @@ namespace minicc
         auto bodyBB = llvm::BasicBlock::Create(*TheContext, "body", function);
         auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
         LoopExitStack.emplace_back(outBB);
-        
+
         TheBuilder->CreateBr(condBB);
         TheBuilder->SetInsertPoint(condBB);
         stmt->condExpr()->accept(this);
         assert(LLVMValueForExpr[stmt->condExpr()]);
         TheBuilder->CreateCondBr(LLVMValueForExpr[stmt->condExpr()], bodyBB, outBB);
-        
+
         TheBuilder->SetInsertPoint(bodyBB);
         stmt->body()->accept(this);
         checkTerminatorAndCreateBr(condBB);
-        
+
         TheBuilder->SetInsertPoint(outBB);
         LoopExitStack.pop_back();
     }
@@ -373,14 +375,14 @@ namespace minicc
         auto currentBB = TheBuilder->GetInsertBlock();
 
         auto comp = TheBuilder->CreateICmpEQ(leftVal, trueVal);
-        
+
         bool isAnd = (expr->opcode() == Expr::ExprOpcode::And);
 
         llvm::BasicBlock *trueBB = isAnd ? slowBB : outBB;  // And: true -> slow, Or: true -> out
         llvm::BasicBlock *falseBB = isAnd ? outBB : slowBB; //
 
         TheBuilder->CreateCondBr(comp, trueBB, falseBB);
-        
+
         // slow block
         TheBuilder->SetInsertPoint(slowBB);
         auto rightChild = (Expr *)expr->getChild(1);
@@ -388,12 +390,12 @@ namespace minicc
         auto rightVal = LLVMValueForExpr[rightChild];
         auto rightComp = TheBuilder->CreateICmpEQ(rightVal, trueVal);
         TheBuilder->CreateBr(outBB);
-        
+
         // out block
         // function->insert(function->end(), outBB);
         TheBuilder->SetInsertPoint(outBB);
         llvm::PHINode *phiNode = TheBuilder->CreatePHI(llvm::Type::getInt1Ty(*TheContext), 2);
-        
+
         phiNode->addIncoming(rightComp, slowBB);
         phiNode->addIncoming(isAnd ? falseVal : trueVal, currentBB);
 
@@ -420,18 +422,23 @@ namespace minicc
         // start your code here
         // Look up symbol table?
         auto ref = (VarReference *)expr->getChild(0);
+        assert(ref);
+
         auto table = expr->locateDeclaringTableForVar(ref->identifier()->name());
+        auto entry = table->lookup(ref->identifier()->name());
         llvm::Value *value = table->lookup(ref->identifier()->name())->LLVMValue;
 
-        // Are we supposed to be doing this?
         assert(value);
-
-        // TODO: need to use CreateGEP for array
-        // if (expr->exprType().arrayBound > 0) {
-        //     TheBuilder::CreateGEP()
-        // }
-        LLVMValueForExpr[expr] = TheBuilder->CreateLoad(miniccTypeTollvmType(expr->exprType()),
-                                                        value);
+        llvm::Type *type = miniccTypeTollvmType(entry->VarType);
+        if (ref->isArray()) {
+            ref->indexExpr()->accept(this);
+            auto zero = llvm::ConstantInt::get(llvm::Type::getInt8Ty(*TheContext), 0, false);
+            std::vector<llvm::Value *> indexList = { zero ,LLVMValueForExpr[ref->indexExpr()] };
+            llvm::Value *arrayPointer = TheBuilder->CreateGEP(type, value, indexList);
+            LLVMValueForExpr[expr] = TheBuilder->CreateLoad(miniccTypeTollvmType(expr->exprType()), arrayPointer);
+        } else {
+            LLVMValueForExpr[expr] = TheBuilder->CreateLoad(type, value);
+        }
     }
 
     void IRGenerator::visitAssignmentExpr(AssignmentExpr *expr)
@@ -440,16 +447,25 @@ namespace minicc
         // • CreateGEP if it is array.
         // • CreateStore to assign the right value to the variable.
         // start your code here
-        expr->getChild(1)->accept(this);
-        VarReference *reference = (VarReference *)expr->getChild(0);
-        VarSymbolTable *table = expr->locateDeclaringTableForVar(reference->identifier()->name());
+        auto ref = (VarReference *)expr->getChild(0);
+        expr->getChild(1)->accept(this); // visit expression
+        VarSymbolTable *table = expr->locateDeclaringTableForVar(ref->identifier()->name());
         assert(table);
-        VarSymbolEntry *entry = table->lookup(reference->identifier()->name());
+        VarSymbolEntry *entry = table->lookup(ref->identifier()->name());
+
+        llvm::Value *value = entry->LLVMValue;
+        if (ref->isArray()) {
+            ref->indexExpr()->accept(this);
+            auto zero = llvm::ConstantInt::get(llvm::Type::getInt8Ty(*TheContext), 0, false);
+            std::vector<llvm::Value *> indexList = { zero, LLVMValueForExpr[ref->indexExpr()] };
+            value = TheBuilder->CreateGEP(miniccTypeTollvmType(entry->VarType), value, indexList);
+        }
         assert(entry);
         assert(entry->LLVMValue);
         assert(LLVMValueForExpr[(Expr *)expr->getChild(1)]);
-        TheBuilder->CreateStore(LLVMValueForExpr[(Expr *)expr->getChild(1)], entry->LLVMValue);
-        LLVMValueForExpr[expr] = entry->LLVMValue;
+        // assert(LLVMValueForExpr[(Expr *)expr->getChild(0)]);
+        TheBuilder->CreateStore(LLVMValueForExpr[(Expr *)expr->getChild(1)], value);
+        LLVMValueForExpr[expr] = LLVMValueForExpr[(Expr *)expr->getChild(1)];
     }
 
     void IRGenerator::visitIntLiteralExpr(IntLiteralExpr *literal)
@@ -457,7 +473,7 @@ namespace minicc
         // start your code here
         llvm::Constant *constant = llvm::ConstantInt::get(
             llvm::Type::getInt32Ty(*TheContext), literal->value(), false);
-        LLVMValueForExpr.emplace(literal, constant);
+        LLVMValueForExpr[literal] = constant;
     }
 
     void IRGenerator::visitBoolLiteralExpr(BoolLiteralExpr *literal)
@@ -465,7 +481,7 @@ namespace minicc
         // start your code here
         llvm::Constant *constant = llvm::ConstantInt::get(
             llvm::Type::getInt1Ty(*TheContext), literal->value(), false);
-        LLVMValueForExpr.emplace(literal, constant);
+        LLVMValueForExpr[literal] = constant;
     }
 
     void IRGenerator::visitCharLiteralExpr(CharLiteralExpr *literal)
@@ -473,7 +489,7 @@ namespace minicc
         // start your code here
         llvm::Constant *constant = llvm::ConstantInt::get(
             llvm::Type::getInt8Ty(*TheContext), literal->value(), false);
-        LLVMValueForExpr.emplace(literal, constant);
+        LLVMValueForExpr[literal] = constant;
     }
 
     void IRGenerator::visitScope(ScopeStatement *stmt)
