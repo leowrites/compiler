@@ -15,39 +15,6 @@
 namespace minicc
 {
     // add your member helper functions
-    llvm::Type *IRGenerator::miniccTypeTollvmTypePrimitive(minicc::Type type)
-    {
-        if (type == Type(Type::Bool))
-            return llvm::Type::getInt1Ty(*TheContext);
-        if (type == Type(Type::Char))
-            return llvm::Type::getInt8Ty(*TheContext);
-        if (type == Type(Type::Int))
-            return llvm::Type::getInt32Ty(*TheContext);
-        if (type == Type(Type::Void))
-            return llvm::Type::getVoidTy(*TheContext);
-        llvm::errs() << "Unknown type: " << type.toString() << "\n"; // Add this
-        return nullptr;                                              // Explicit return
-    }
-
-    llvm::Type *IRGenerator::miniccTypeTollvmType(minicc::Type type)
-    {
-        llvm::Type *llvmType = miniccTypeTollvmTypePrimitive(Type(type.primitiveType()));
-        if (type.arrayBound() == 0)
-        {
-            return llvmType;
-        }
-        return llvm::ArrayType::get(llvmType, type.arrayBound());
-    }
-
-    // Code from LLVM tutorial, used to allocate on the stack
-    llvm::AllocaInst *IRGenerator::CreateEntryBlockAlloca(llvm::Function *function, std::string name,
-                                                          llvm::Type *type, llvm::Value *arraySize)
-    {
-        assert(function);
-        assert(type);
-        llvm::IRBuilder<> TmpB(&function->getEntryBlock(), function->getEntryBlock().begin());
-        return TmpB.CreateAlloca(type, arraySize, name);
-    }
 
     void IRGenerator::visitProgram(Program *prog)
     {
@@ -69,7 +36,6 @@ namespace minicc
             llvm::Function *putIntFunc = llvm::Function::Create(
                 putIntType, llvm::Function::ExternalLinkage, "putint", TheModule.get());
 
-            // TODO: is this type correct? Should it be 8
             std::vector<llvm::Type *> Char(1, llvm::Type::getInt8Ty(*TheContext));
             llvm::FunctionType *putcharacterType = llvm::FunctionType::get(
                 llvm::Type::getVoidTy(*TheContext), Char, false);
@@ -81,29 +47,25 @@ namespace minicc
             llvm::Function *putnewlineFunc = llvm::Function::Create(
                 putnewlineType, llvm::Function::ExternalLinkage, "putnewline", TheModule.get());
         }
-        // Why is there no visitASTNode?
+
         for (int i = 0; i < prog->numChildren(); i++)
-        {
-            auto child = prog->getChild(i);
-            child->accept(this);
-        }
+            prog->getChild(i)->accept(this);
     }
 
     void IRGenerator::visitVarDecl(VarDeclaration *decl)
     {
         // start your code here
-        auto parent = decl->getParent();
         auto table = decl->getParentScope()->scopeVarTable();
-        llvm::Function *parentBB = nullptr;
-        if (TheBuilder->GetInsertBlock()) {
-            parentBB = TheBuilder->GetInsertBlock()->getParent();
-        }
+        assert(table);
+        auto parentBB = getFunctionBlock();
+
         for (size_t i = 0; i < decl->numVarReferences(); i++)
         {
             VarReference *ref = decl->varReference(i);
-
             auto name = ref->identifier()->name();
             VarSymbolEntry *entry = table->lookup(name);
+            assert(entry);
+
             auto type = miniccTypeTollvmType(Type(decl->declType(), entry->VarType.arrayBound()));
 
             if (!parentBB) {
@@ -135,8 +97,7 @@ namespace minicc
         {
             llvm::Type *returnType = miniccTypeTollvmType(func->returnType());
             std::vector<llvm::Type *> argTypes;
-            for (int i = 0; i < func->numParameters(); i++)
-            {
+            for (int i = 0; i < func->numParameters(); i++) {
                 argTypes.emplace_back(miniccTypeTollvmType(func->parameter(i)->type()));
             }
 
@@ -145,11 +106,8 @@ namespace minicc
                 funcType, llvm::Function::ExternalLinkage, func->name(), TheModule.get());
         }
 
-        // Return if no body
         if (!func->hasBody())
-        {
             return;
-        }
 
         llvm::FunctionType *funcType = function->getFunctionType();
 
@@ -169,7 +127,6 @@ namespace minicc
                 llvm::Argument *arg = function->arg_begin() + i;
                 arg->setName(param->name());
                 TheBuilder->CreateStore(arg, alloc);
-                // Store in a symbol table (e.g., std::map<std::string, llvm::Value*>)
             }
 
             table->lookup(param->name())->LLVMValue = alloc;
@@ -197,13 +154,11 @@ namespace minicc
     {
         // start your code here
         llvm::Function *function = TheBuilder->GetInsertBlock()->getParent();
-        // llvm::BasicBlock *slowBB = llvm::BasicBlock::Create(*TheContext, "slow", function);
         auto thenBB = llvm::BasicBlock::Create(*TheContext, "then", function);
         llvm::BasicBlock *elseBB;
         if (stmt->hasElse()) {
             elseBB = llvm::BasicBlock::Create(*TheContext, "else", function);
         }
-        // Should this be inserted before the inner blocks are created?
         auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
 
         stmt->condExpr()->accept(this);
@@ -227,31 +182,40 @@ namespace minicc
     {
         // start your code here
         auto function = TheBuilder->GetInsertBlock()->getParent();
-        auto condBB = llvm::BasicBlock::Create(*TheContext, "cond", function);
         auto bodyBB = llvm::BasicBlock::Create(*TheContext, "body", function);
         auto outBB = llvm::BasicBlock::Create(*TheContext, "out", function);
+        auto hasCond = stmt->condExpr() != nullptr;
 
         LoopExitStack.emplace_back(outBB);
 
-        stmt->initExpr()->accept(this);
+        if (stmt->initExpr())
+            stmt->initExpr()->accept(this);
 
-        TheBuilder->CreateBr(condBB);
-        TheBuilder->SetInsertPoint(condBB);
-        stmt->condExpr()->accept(this);
-        assert(LLVMValueForExpr[stmt->condExpr()]);
-        TheBuilder->CreateCondBr(LLVMValueForExpr[stmt->condExpr()], bodyBB, outBB);
+        llvm::BasicBlock *condBB;
+        if (hasCond) {
+            condBB = llvm::BasicBlock::Create(*TheContext, "cond", function);
+            TheBuilder->CreateBr(condBB);
+            TheBuilder->SetInsertPoint(condBB);
+            stmt->condExpr()->accept(this);
+            assert(LLVMValueForExpr[stmt->condExpr()]);
+            TheBuilder->CreateCondBr(LLVMValueForExpr[stmt->condExpr()], bodyBB, outBB);
+        } else {
+            TheBuilder->CreateBr(bodyBB);
+        }
 
         TheBuilder->SetInsertPoint(bodyBB);
         stmt->body()->accept(this);
-        // If there is a break here, stop?
 
         if (!TheBuilder->GetInsertBlock()->getTerminator()) {
-            stmt->iterExpr()->accept(this);
-            checkTerminatorAndCreateBr(condBB);
+            if (stmt->iterExpr())
+                stmt->iterExpr()->accept(this);
+            if (hasCond)
+                checkTerminatorAndCreateBr(condBB);
+            else
+                checkTerminatorAndCreateBr(bodyBB);
         }
 
         TheBuilder->SetInsertPoint(outBB);
-        // TODO: where should this go?
         LoopExitStack.pop_back();
     }
 
@@ -467,7 +431,6 @@ namespace minicc
         assert(entry);
         assert(entry->LLVMValue);
         assert(LLVMValueForExpr[(Expr *)expr->getChild(1)]);
-        // assert(LLVMValueForExpr[(Expr *)expr->getChild(0)]);
         TheBuilder->CreateStore(LLVMValueForExpr[(Expr *)expr->getChild(1)], value);
         LLVMValueForExpr[expr] = LLVMValueForExpr[(Expr *)expr->getChild(1)];
     }

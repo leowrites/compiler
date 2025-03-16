@@ -23,16 +23,47 @@ namespace minicc {
         std::vector<llvm::BasicBlock*> LoopExitStack;
 
         //add your variables and member functions
-        // Is named value supposed to map from name of variables to the llvm value?
-        llvm::Type* miniccTypeTollvmTypePrimitive(minicc::Type type);
-        llvm::Type* miniccTypeTollvmType(minicc::Type type);
-        
-        static llvm::AllocaInst * CreateEntryBlockAlloca(llvm::Function *function, 
-            std::string name, llvm::Type* type, llvm::Value *arraySize);
-        
+        llvm::Type* miniccTypeTollvmTypePrimitive(minicc::Type type) {
+            if (type == Type(Type::Bool))
+                return llvm::Type::getInt1Ty(*TheContext);
+            if (type == Type(Type::Char))
+                return llvm::Type::getInt8Ty(*TheContext);
+            if (type == Type(Type::Int))
+                return llvm::Type::getInt32Ty(*TheContext);
+            if (type == Type(Type::Void))
+                return llvm::Type::getVoidTy(*TheContext);
+            llvm::errs() << "Unknown type: " << type.toString() << "\n"; // Add this
+            return nullptr;
+        };
+        llvm::Type *miniccTypeTollvmType(minicc::Type type) {
+            llvm::Type *llvmType = miniccTypeTollvmTypePrimitive(Type(type.primitiveType()));
+            if (type.arrayBound() == 0)
+            {
+                return llvmType;
+            }
+            return llvm::ArrayType::get(llvmType, type.arrayBound());
+        }
+
+        // Code from LLVM tutorial, used to allocate on the stack
+        llvm::AllocaInst *CreateEntryBlockAlloca(llvm::Function *function, std::string name,
+                                                              llvm::Type *type, llvm::Value *arraySize)
+        {
+            assert(function);
+            assert(type);
+            llvm::IRBuilder<> TmpB(&function->getEntryBlock(), function->getEntryBlock().begin());
+            return TmpB.CreateAlloca(type, arraySize, name);
+        }
+
         void checkTerminatorAndCreateBr(llvm::BasicBlock* bb) {
             if (!TheBuilder->GetInsertBlock()->getTerminator())
                 TheBuilder->CreateBr(bb);
+        }
+
+        llvm::Function *getFunctionBlock() {
+            if (TheBuilder->GetInsertBlock()) {
+                return TheBuilder->GetInsertBlock()->getParent();
+            }
+            return nullptr;
         }
     public:
         //modify if needed
