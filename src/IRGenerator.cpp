@@ -27,25 +27,21 @@ namespace minicc
         {
             llvm::FunctionType *getIntType = llvm::FunctionType::get(
                 llvm::Type::getInt32Ty(*TheContext), std::vector<llvm::Type *>(), false);
-            llvm::Function *getIntFunc = llvm::Function::Create(
-                getIntType, llvm::Function::ExternalLinkage, "getint", TheModule.get());
+            llvm::Function::Create(getIntType, llvm::Function::ExternalLinkage, "getint", TheModule.get());
 
             std::vector<llvm::Type *> Int(1, llvm::Type::getInt32Ty(*TheContext));
             llvm::FunctionType *putIntType = llvm::FunctionType::get(
                 llvm::Type::getVoidTy(*TheContext), Int, false);
-            llvm::Function *putIntFunc = llvm::Function::Create(
-                putIntType, llvm::Function::ExternalLinkage, "putint", TheModule.get());
+            llvm::Function::Create(putIntType, llvm::Function::ExternalLinkage, "putint", TheModule.get());
 
             std::vector<llvm::Type *> Char(1, llvm::Type::getInt8Ty(*TheContext));
             llvm::FunctionType *putcharacterType = llvm::FunctionType::get(
                 llvm::Type::getVoidTy(*TheContext), Char, false);
-            llvm::Function *putcharacterFunc = llvm::Function::Create(
-                putcharacterType, llvm::Function::ExternalLinkage, "putcharacter", TheModule.get());
+            llvm::Function::Create(putcharacterType, llvm::Function::ExternalLinkage, "putcharacter", TheModule.get());
 
             llvm::FunctionType *putnewlineType = llvm::FunctionType::get(
                 llvm::Type::getVoidTy(*TheContext), std::vector<llvm::Type *>(), false);
-            llvm::Function *putnewlineFunc = llvm::Function::Create(
-                putnewlineType, llvm::Function::ExternalLinkage, "putnewline", TheModule.get());
+            llvm::Function::Create(putnewlineType, llvm::Function::ExternalLinkage, "putnewline", TheModule.get());
         }
 
         for (int i = 0; i < prog->numChildren(); i++)
@@ -122,12 +118,10 @@ namespace minicc
             auto param = func->parameter(i);
             llvm::Value *alloc = CreateEntryBlockAlloca(function, param->name(),
                                                         funcType->getParamType(i), nullptr);
-            if (alloc)
-            {
-                llvm::Argument *arg = function->arg_begin() + i;
-                arg->setName(param->name());
-                TheBuilder->CreateStore(arg, alloc);
-            }
+            assert(alloc);
+            llvm::Argument *arg = function->arg_begin() + i;
+            arg->setName(param->name());
+            TheBuilder->CreateStore(arg, alloc);
 
             table->lookup(param->name())->LLVMValue = alloc;
         }
@@ -167,7 +161,6 @@ namespace minicc
 
         TheBuilder->SetInsertPoint(thenBB);
         stmt->thenStmt()->accept(this);
-        // there could be a terminator inside, TODO: check other places
         checkTerminatorAndCreateBr(outBB);
 
         if (stmt->hasElse()) {
@@ -267,16 +260,12 @@ namespace minicc
         // start your code here
         Expr *subexpr = (Expr *)expr->getChild(0);
         subexpr->accept(this);
-        llvm::Value *value = LLVMValueForExpr[subexpr]; // this Value may not have int type
+        llvm::Value *value = LLVMValueForExpr[subexpr];
         assert(value);
         if (expr->opcode() == Expr::ExprOpcode::Sub)
-        {
             LLVMValueForExpr[expr] = TheBuilder->CreateNeg(value);
-        }
         if (expr->opcode() == Expr::ExprOpcode::Not)
-        {
             LLVMValueForExpr[expr] = TheBuilder->CreateNot(value);
-        }
     }
 
     void IRGenerator::visitBinaryExpr(BinaryExpr *expr)
@@ -392,9 +381,10 @@ namespace minicc
         auto ref = (VarReference *)expr->getChild(0);
         assert(ref);
 
-        auto table = expr->locateDeclaringTableForVar(ref->identifier()->name());
-        auto entry = table->lookup(ref->identifier()->name());
-        llvm::Value *value = table->lookup(ref->identifier()->name())->LLVMValue;
+        auto name = ref->identifier()->name();
+        auto table = expr->locateDeclaringTableForVar(name);
+        auto entry = table->lookup(name);
+        llvm::Value *value = entry->LLVMValue;
 
         assert(value);
         llvm::Type *type = miniccTypeTollvmType(entry->VarType);
@@ -417,9 +407,9 @@ namespace minicc
         // start your code here
         auto ref = (VarReference *)expr->getChild(0);
         expr->getChild(1)->accept(this); // visit expression
-        VarSymbolTable *table = expr->locateDeclaringTableForVar(ref->identifier()->name());
-        assert(table);
-        VarSymbolEntry *entry = table->lookup(ref->identifier()->name());
+        auto name = ref->identifier()->name();
+        VarSymbolTable *table = expr->locateDeclaringTableForVar(name);
+        VarSymbolEntry *entry = table->lookup(name);
 
         llvm::Value *value = entry->LLVMValue;
         if (ref->isArray()) {
