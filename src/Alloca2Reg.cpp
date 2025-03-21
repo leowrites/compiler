@@ -33,7 +33,7 @@ namespace {
             for (BasicBlock& BB: F) {
                 for (Instruction& inst: BB) {
                     if (isa<AllocaInst>(inst)) {
-                        AllocaInst* allocaInst = cast<AllocaInst>(&inst);
+                        auto* allocaInst = cast<AllocaInst>(&inst);
                         if (std::all_of(inst.users().begin(), inst.users().end(),
                             [](User *u) { return isa<LoadInst>(u) || isa<StoreInst>(u); })) {
                             TargetAllocas.emplace(allocaInst);
@@ -43,10 +43,17 @@ namespace {
             }
         }
 
-        void removeInstructions(std::vector<Instruction*> &toRemove) {
+        void removeInstructions(std::vector<Instruction*> &toRemove, Function &F) {
             for (auto inst: toRemove) {
                 assert(inst != nullptr);
                 inst->eraseFromParent();
+                if (auto allocaInst = dyn_cast<AllocaInst>(inst)) {
+                    // for all BB, delete from Post and Pre
+                    for (BasicBlock &BB: F) {
+                        Post[&BB].erase(allocaInst);
+                        Pre[&BB].erase(allocaInst);
+                    }
+                }
             }
             toRemove.clear();
         }
@@ -55,19 +62,22 @@ namespace {
         void accumulateUnusedInstructions(Function &F, std::vector<Instruction*> &toRemove) {
             for (BasicBlock& BB: F) {
                 for (Instruction& inst: BB) {
-                    if (isa<T>(inst) && inst.user_empty()) {
-                        errs() << "Removing instruction " << inst << "!\n";
-                        toRemove.push_back(&inst);
+                    // for store, there may not be users, but we don't want to remove it unless it's using alloca
+                    if (isa<StoreInst>(inst)) {
+                        if (TargetAllocas.find(dyn_cast<AllocaInst>(getPointerOperand(&inst))) != TargetAllocas.end()) {
+                            toRemove.emplace_back(&inst);
+                        }
+                    } else {
+                        if (isa<T>(inst) && inst.user_empty()) {
+                            errs() << "Removing instruction " << inst << "!\n";
+                            toRemove.push_back(&inst);
+                        }
                     }
                 }
             }
         }
 
-        virtual bool runOnFunction(Function &F) {
-            errs() << "Working on function called " << F.getName() << "!\n";
-            collectTargetAllocas(F);
-
-            // TODO: for each alloca, create PHI in all basic blocks of F
+        void addPhiNodes(Function &F) {
             for (BasicBlock& BB: F) {
                 if (&F.getEntryBlock() == &BB) {
                     errs() << "Found entry block " << BB.getName() << "!\n";
@@ -82,7 +92,9 @@ namespace {
                     }
                 }
             }
+        }
 
+        void replaceLoads(Function &F) {
             for (BasicBlock& BB: F) {
                 for (Instruction& inst: BB) {
                     if (auto storeInst = dyn_cast<StoreInst>(&inst)) {
@@ -91,8 +103,6 @@ namespace {
                             Post[&BB][allocaInst] = storeInst->getValueOperand();
                         }
                     } else if (auto loadInst = dyn_cast<LoadInst>(&inst)) {
-                        // for load instructions, create PHI node if no mapping in Post,
-                        // otherwise replace itself with the value in Post
                         auto allocaInst = dyn_cast<AllocaInst>(loadInst->getPointerOperand());
                         if (TargetAllocas.count(allocaInst)) {
                             loadInst->replaceAllUsesWith(Post[&BB][allocaInst]);
@@ -100,35 +110,49 @@ namespace {
                     }
                 }
             }
+        }
+
+        void addPhiNodeEdges() {
             for (const auto& entry: Pre) {
                 for (auto innerEntry: entry.second) {
                     auto allocaInst = dyn_cast<AllocaInst>(innerEntry.first);
                     auto predBBs = predecessors(entry.first);
                     auto phiNode = innerEntry.second;
+                    assert(phiNode);
                     if (predBBs.empty()) {
                         phiNode->setIncomingValue(0, UndefValue::get(allocaInst->getAllocatedType()));
                     }
                     for (auto predBB: predBBs) {
-                        if (!Post[predBB][allocaInst]) {
-                        } else {
+                        if (Post[predBB][allocaInst]) {
+                            assert(Post[predBB][allocaInst]);
+                            assert(predBB);
+                            assert(phiNode);
                             phiNode->addIncoming(Post[predBB][allocaInst], predBB);
                         }
                     }
                 }
             }
+        }
 
-            // Remove instructions
+        void removeUnusedInstructions(Function &F) {
             std::vector<Instruction*> toRemove;
             accumulateUnusedInstructions<PHINode>(F, toRemove);
-            removeInstructions(toRemove);
+            removeInstructions(toRemove, F);
             accumulateUnusedInstructions<LoadInst>(F, toRemove);
-            removeInstructions(toRemove);
+            removeInstructions(toRemove, F);
             accumulateUnusedInstructions<StoreInst>(F, toRemove);
-            removeInstructions(toRemove);
+            removeInstructions(toRemove, F);
             accumulateUnusedInstructions<AllocaInst>(F, toRemove);
-            removeInstructions(toRemove);
+            removeInstructions(toRemove, F);
+        }
 
-            F.print(errs());
+        virtual bool runOnFunction(Function &F) {
+            errs() << "Working on function called " << F.getName() << "!\n";
+            collectTargetAllocas(F);
+            addPhiNodes(F);
+            replaceLoads(F);
+            addPhiNodeEdges();
+            removeUnusedInstructions(F);
             return true;
         }
     };
