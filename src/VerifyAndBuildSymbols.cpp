@@ -59,6 +59,7 @@ namespace minicc
             FuncSymbolEntry putnewlineEntry(Type(Type::Void), std::vector<Type>(), true);
             funcTable->insert("putnewline", putnewlineEntry);
         }
+        VisitingProgram = prog;
         this->visitASTNode(prog);
     }
 
@@ -218,38 +219,62 @@ namespace minicc
         funcTable->insert(func->name(), entry);
     }
 
-    void VerifyAndBuildSymbols::visitFuncDecl(FuncDeclaration *func)
-    {
-        // start your code here
-        FuncSymbolTable *funcTable = func->root()->funcTable();
-        //  can be declared but cannot be defined again
-        auto name = func->name();
-        auto entry = funcTable->lookup(name);
-        bool canInsert = true;
-        if (entry)
-        {
-            // Hint: Check return type of the function does not match with each other
-            bool validReturnType = checkReturnType(Errors, entry, func);
-            //      Check number of parameters should match with each other
-            bool validParamCount = checkParameterCount(Errors, entry, func);
-            //      Check each parameter type should match with each other
-            bool validParamTypes = validParamCount && checkMismatchedParameterType(Errors, entry, func);
-            //      Check there should be only one definition of the function
-            bool notRedefined = checkFuncRedefinition(Errors, entry, func);
-            canInsert = validReturnType && validParamCount && validParamTypes && notRedefined;
+    void VerifyAndBuildSymbols::visitFuncDecl(FuncDeclaration *func) {
+        Program* root = VisitingProgram;
+        Type t = func->returnType();
+        std::string name = func->name();
+        std::vector<Type> parameterTypes;
+        std::vector<std::string> parameterNames;
+        parameterTypes.clear();
+        parameterNames.clear();
+        for (size_t i = 0; i < func->numParameters(); i++) {
+            Parameter* para = func->parameter(i);
+            std::string name = para->name();
+            parameterTypes.push_back(para->type());
+            parameterNames.push_back(para->name());
         }
-
-        //      Check parameters cannot have the same name
-        checkParamRedefinition(Errors, func);
-
-        //      Check the last statement a function body must be return if the return type is not void
-        checkReturnStatement(Errors, func);
-
-        // Only insert if no conflict
-        if (canInsert)
-            insertFunc(funcTable, entry, func);
-
+        // If we already have this function, we are going to check the type matches with each other.
+        if (FuncSymbolEntry *entry = root->funcTable()->lookup(name)) {
+            // Check2: Return type of the function does not match with each other
+            if (entry->ReturnType != t)
+                Errors.push_back(ErrorMessage("Definition of function \"" + name + "()\" with different return type!", func->srcLoc()));
+            // Check3: Number of parameters should match with each other
+            if (entry->ParameterTypes.size() != parameterTypes.size())
+                Errors.push_back(ErrorMessage("Definition of function \"" + name + "()\" with different number of parameters!", func->srcLoc()));
+            // Check4: Each parameter type should match with each other
+            for (size_t i = 0; i < std::min(parameterTypes.size(), entry->ParameterTypes.size()); i++)
+                if (entry->ParameterTypes[i] != parameterTypes[i])
+                    Errors.push_back(ErrorMessage("Definition of function \"" + name + "()\" with different parameter type at position " + std::to_string(i) + "!", func->srcLoc()));
+            // Check5: Only one definition of the function.
+            if (func->hasBody())
+                if (entry->HasBody)
+                    Errors.push_back(ErrorMessage("Redefinition of function \"" + name + "()\"!", func->srcLoc()));
+        }
+        else
+            root->funcTable()->insert(name, FuncSymbolEntry(t, parameterTypes, false));
+        if (func->hasBody()) {
+            auto entry = root->funcTable()->lookup(name);
+            entry->HasBody = true;
+            ScopeStatement* body = func->body();
+            // Check6: Parameters cannot have the same name
+            for (size_t i = 0; i < parameterTypes.size(); i++)
+                if (body->scopeVarTable()->lookup(parameterNames[i]))
+                    Errors.push_back(ErrorMessage("Redefinition of variable/parameter \"" + parameterNames[i] + "\" in the same scope!", func->parameter(i)->getChild(0)->srcLoc()));
+                else {
+                    auto table = body->scopeVarTable();
+                    table->insert(parameterNames[i], VarSymbolEntry(parameterTypes[i]));
+                }
+        }
         this->visitASTNode(func);
+        if (func->hasBody()) {
+            // Check26: The last statement a function body must be return if the return type is not void
+            ScopeStatement* body = func->body();
+            Statement* lastStatement = nullptr;
+            if (body->numChildren() > 0)
+                lastStatement = (Statement*) body->getChild(body->numChildren() - 1);
+            if (!func->returnType().isVoid() && (lastStatement == nullptr || !lastStatement->isReturn()))
+                Errors.push_back(ErrorMessage("The function \"" + name + "()\" need to return a value at its end!", func->srcLoc()));
+        }
     }
 
     void VerifyAndBuildSymbols::visitIfStmt(IfStatement *stmt)

@@ -1,0 +1,7 @@
+./src/minicc ./sample3.c -o out.bc
+
+llvm-dis-15 out.bc -o out.ll
+
+clang -S -emit-llvm sample3.c
+
+clang-15 out.bc minicio/libminicio.a -o out
