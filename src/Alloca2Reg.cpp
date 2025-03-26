@@ -84,7 +84,8 @@ namespace {
         void addPhiNodes(Function &F) {
             // errs() << "add phi nodes for " << F.getName() << "\n";
             for (BasicBlock& BB: F) {
-                if (&F.getEntryBlock() == &BB) {
+                // don't add phi nodes if there are no predecessors
+                if (&F.getEntryBlock() == &BB || predecessors(&BB).empty()) {
                     // errs() << "Found entry block " << BB.getName() << "!\n";
                     continue;
                 }
@@ -92,7 +93,8 @@ namespace {
                     assert(allocaInst);
                     if (!Pre[&BB][allocaInst]) {
                         auto name = allocaInst->getName() + "_" + BB.getName();
-                        PHINode* phiNode = PHINode::Create(allocaInst->getOperand(0)->getType(), pred_size(&BB), name, &BB.front());
+                        // this could be wrong, wha tis the correct type? Right now every phi node has i32
+                        PHINode* phiNode = PHINode::Create(allocaInst->getAllocatedType(), pred_size(&BB), name, &BB.front());
                         Pre[&BB][allocaInst] = phiNode;
                         Post[&BB][allocaInst] = phiNode;
                     }
@@ -129,16 +131,19 @@ namespace {
                     auto predBBs = predecessors(entry.first);
                     auto phiNode = innerEntry.second;
                     assert(phiNode);
-                    if (predBBs.empty()) {
-                        phiNode->setIncomingValue(0, UndefValue::get(allocaInst->getAllocatedType()));
-                    }
                     for (auto predBB: predBBs) {
                         if (Post[predBB][allocaInst]) {
                             assert(Post[predBB][allocaInst]);
                             assert(predBB);
                             assert(phiNode);
+                            // errs() << "PhiNode " << phiNode->getName() << " already exists\n";
+                            // phiNode->getType()->print(errs());
+                            // Post[predBB][allocaInst]->print(errs());
                             phiNode->addIncoming(Post[predBB][allocaInst], predBB);
                         } else {
+                            // errs() << "PhiNode " << phiNode->getName() << "has no post value\n";
+                            // phiNode->getType()->print(errs());
+                            // Post[predBB][allocaInst]->print(errs());
                             phiNode->addIncoming(UndefValue::get(allocaInst->getAllocatedType()), predBB);
                         }
                     }
@@ -166,7 +171,6 @@ namespace {
             replaceLoads(F);
             addPhiNodeEdges(F);
             removeUnusedInstructions(F);
-            // F.print(errs());
             return true;
         }
     };
