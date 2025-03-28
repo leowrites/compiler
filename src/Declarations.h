@@ -86,15 +86,6 @@ namespace minicc {
             return para;
         }
     };
-
-    class MultipleDeclaration : public Declaration {
-    public:
-        MultipleDeclaration() : Declaration() { }
-
-        void accept(ASTVisitor *visitor) override {
-            visitor->visitDecl(this);
-        }
-    };
 }
 
 #endif //MINICC_DECLARATIONS_H

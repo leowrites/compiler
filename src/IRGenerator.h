@@ -5,7 +5,6 @@
 #ifndef MINICC_IRGENERATOR_H
 #define MINICC_IRGENERATOR_H
 
-//add more header files if your want
 #include "ASTVisitor.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
@@ -19,59 +18,22 @@ namespace minicc {
         std::unique_ptr<llvm::IRBuilder<>> TheBuilder;
         std::string ModuleName;
 
-        std::map<Expr*, llvm::Value*> LLVMValueForExpr;
-        std::vector<llvm::BasicBlock*> LoopExitStack;
+        llvm::Function* EnclosingFunction;
 
-        //add your variables and member functions
-        llvm::Type* miniccTypeTollvmTypePrimitive(minicc::Type type) {
-            if (type == Type(Type::Bool))
-                return llvm::Type::getInt1Ty(*TheContext);
-            if (type == Type(Type::Char))
-                return llvm::Type::getInt8Ty(*TheContext);
-            if (type == Type(Type::Int))
-                return llvm::Type::getInt32Ty(*TheContext);
-            if (type == Type(Type::Void))
-                return llvm::Type::getVoidTy(*TheContext);
-            llvm::errs() << "Unknown type: " << type.toString() << "\n"; // Add this
-            return nullptr;
-        };
-        llvm::Type *miniccTypeTollvmType(minicc::Type type) {
-            llvm::Type *llvmType = miniccTypeTollvmTypePrimitive(Type(type.primitiveType()));
-            if (type.arrayBound() == 0)
-            {
-                return llvmType;
-            }
-            return llvm::ArrayType::get(llvmType, type.arrayBound());
-        }
+        std::map<Expr*, llvm::Value*> ValueForExpr;
+        std::map<Statement*, llvm::BasicBlock*> LoopToExit;
+        std::map<Statement*, llvm::BasicBlock*> LoopToContinue;
 
-        // Code from LLVM tutorial, used to allocate on the stack
-        llvm::AllocaInst *CreateEntryBlockAlloca(llvm::Function *function, std::string name,
-                                                              llvm::Type *type, llvm::Value *arraySize)
-        {
-            assert(function);
-            assert(type);
-            llvm::IRBuilder<> TmpB(&function->getEntryBlock(), function->getEntryBlock().begin());
-            return TmpB.CreateAlloca(type, arraySize, name);
-        }
+        llvm::Type* toLLVMType(Type t);
 
-        void checkTerminatorAndCreateBr(llvm::BasicBlock* bb) {
-            if (!TheBuilder->GetInsertBlock()->getTerminator())
-                TheBuilder->CreateBr(bb);
-        }
+        std::vector<llvm::Type*> toLLVMTypes(std::vector<Type> types);
 
-        llvm::Function *getFunctionBlock() {
-            if (TheBuilder->GetInsertBlock()) {
-                return TheBuilder->GetInsertBlock()->getParent();
-            }
-            return nullptr;
-        }
+        llvm::Function* findOrGenFunctionProto(const std::string &name, Program* root);
     public:
-        //modify if needed
-        explicit IRGenerator(const std::string moduleName) : ASTVisitor(), TheModule(), TheBuilder(), ModuleName(moduleName){
+        explicit IRGenerator(const std::string moduleName) : ASTVisitor(), TheModule(), TheBuilder(), ModuleName(moduleName), EnclosingFunction(nullptr), ValueForExpr(), LoopToExit() {
             TheContext = std::make_unique<llvm::LLVMContext>();
         }
 
-        
         std::unique_ptr<llvm::Module> getModule() {
             TheBuilder.reset();
             return std::move(TheModule);

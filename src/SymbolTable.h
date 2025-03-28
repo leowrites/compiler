@@ -5,12 +5,9 @@
 #ifndef MINICC_SYMBOLTABLE_H
 #define MINICC_SYMBOLTABLE_H
 
-//add more header files if your want
-//You may need assert function
-#include <cassert>
 #include "Types.h"
+#include <cassert>
 #include <map>
-#include <iostream>
 
 namespace llvm {
     class Value;
@@ -31,18 +28,24 @@ namespace minicc {
         std::map<std::string, VarSymbolEntry> Table;
 
     public:
-        //define your member variables and functions
-        VarSymbolTable() : Table() { }
-        void insert(const std::string &key, const VarSymbolEntry &entry) {
-            Table.emplace(key, entry);
+        bool containsVar(const std::string &name) const {
+            return Table.count(name) != 0;
         }
-    
-        VarSymbolEntry* lookup(const std::string &key) const {
-            auto it = Table.find(key);
-            if (it != Table.end()) {
-                return (VarSymbolEntry*)&it->second;
-            }
-            return nullptr;
+
+        void addVariableSymbol(const std::string &name, Type varType) {
+            Table.insert(std::make_pair(name, VarSymbolEntry(varType)));
+        }
+
+        VarSymbolEntry get(const std::string &name) {
+            auto it = Table.find(name);
+            assert( it != Table.end());
+            return it->second;
+        }
+
+        void setLLVMValue(const std::string &name, llvm::Value* val) {
+            auto it = Table.find(name);
+            assert( it != Table.end());
+            it->second.LLVMValue = val;
         }
     };
 
@@ -57,16 +60,34 @@ namespace minicc {
     class FuncSymbolTable {
         std::map<std::string, FuncSymbolEntry> Table;
     public:
-        //define your member variables and functions
-        void insert(const std::string &key, const FuncSymbolEntry entry) {
-            Table.emplace(key, entry);
+        typedef std::map<std::string, FuncSymbolEntry>::iterator Iterator;
+
+        bool containsFunc(const std::string &name) const {
+            return Table.count(name) != 0;
         }
-        FuncSymbolEntry* lookup(std::string key) {
-            auto it = Table.find(key);
-            if (it != Table.end()) {
-                return &it->second;
-            }
-            return nullptr;
+
+        void addFunctionSymbol(const std::string &name, Type retType, const std::vector<Type> &paraTypes, bool hasBody) {
+            Table.insert(std::make_pair(name, FuncSymbolEntry(retType, paraTypes, hasBody)));
+        }
+
+        void setFunctionBody(const std::string &name, bool flag) {
+            auto it = Table.find(name);
+            assert( it != Table.end());
+            it->second.HasBody = flag;
+        }
+
+        FuncSymbolEntry get(const std::string &name) {
+            auto it = Table.find(name);
+            assert( it != Table.end());
+            return it->second;
+        }
+
+        Iterator begin() {
+            return Table.begin();
+        }
+
+        Iterator end() {
+            return Table.end();
         }
     };
 }

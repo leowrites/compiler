@@ -186,6 +186,6 @@ static void registerAlloca2RegPass(const PassManagerBuilder &,
                                     legacy::PassManagerBase &PM) {
     PM.add(new Alloca2RegPass());
 }
-// static RegisterStandardPasses
-//         RegisterMyPass(PassManagerBuilder::EP_EarlyAsPossible,
-//                        registerAlloca2RegPass);
+static RegisterStandardPasses
+        RegisterMyPass(PassManagerBuilder::EP_EarlyAsPossible,
+                       registerAlloca2RegPass);

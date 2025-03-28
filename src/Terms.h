@@ -70,6 +70,10 @@ namespace minicc {
             visitor->visitParameter(this);
         }
 
+        Identifier* identifier() const {
+            return (Identifier*)getChild(1);
+        }
+
         Type type() {
             auto ref = (TypeReference*)getChild(0);
             return ref->value();

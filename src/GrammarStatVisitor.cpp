@@ -13,7 +13,10 @@ namespace minicc {
     antlrcpp::Any GrammarStatVisitor::visitExpr(minicc::MiniCParser::ExprContext *exprContext) {
         ExprCnt++;
         if (exprContext->children.size() == 3) {
-            BinopCnt++;
+            auto firstexp = exprContext->children[0];
+            auto thirdexp = exprContext->children[2];
+            if (firstexp->getText() != "(" && thirdexp->getText() != ")")
+                BinopCnt++;
             auto binop = exprContext->children[1];
             if (binop->getText() == "+")
                 PlusCnt++;

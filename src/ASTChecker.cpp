@@ -14,7 +14,6 @@ void checkASTStatus(const std::string &InputFile) {
     std::ifstream stream;
     stream.open(InputFile);
 
-
     ANTLRInputStream input(stream);
     MiniCLexer lexer(&input);
     CommonTokenStream tokens(&lexer);
