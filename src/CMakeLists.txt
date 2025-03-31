@@ -15,10 +15,17 @@ target_link_libraries(minicc PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/libirgen.a ${CM
 add_library(alloca2reg MODULE Alloca2Reg.cpp)
 target_compile_options(alloca2reg PRIVATE -fno-rtti)
 
+add_library(removeGlobalLoad MODULE RemoveGlobalLoad.cpp)
+target_compile_options(removeGlobalLoad PRIVATE -fno-rtti)
+
+
 # Get proper shared-library behavior (where symbols are not necessarily
 # resolved when the shared library is linked) on OS X.
 if(APPLE)
     set_target_properties(alloca2reg PROPERTIES
+            LINK_FLAGS "-undefined dynamic_lookup"
+            )
+    set_target_properties(removeGlobalLoad PROPERTIES
             LINK_FLAGS "-undefined dynamic_lookup"
             )
 endif(APPLE)

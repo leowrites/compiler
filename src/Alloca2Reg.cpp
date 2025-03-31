@@ -165,7 +165,7 @@ namespace {
         }
 
         virtual bool runOnFunction(Function &F) {
-            // errs() << "Working on function called " << F.getName() << "!\n";
+            errs() << "Running Alloca2Reg on function called " << F.getName() << "!\n";
             collectTargetAllocas(F);
             addPhiNodes(F);
             replaceLoads(F);
