@@ -18,7 +18,8 @@
 #include <set>
 #include <llvm-15/llvm/IR/Constants.h>
 #include "llvm/Analysis/LoopInfo.h"
-
+#include "llvm/Transforms/Scalar/LICM.h"
+#include "llvm/IR/IRBuilder.h"
 
 using namespace llvm;
 
@@ -30,6 +31,8 @@ namespace
         RemoveGlobalLoad() : FunctionPass(ID) {}
 
         std::map<GlobalVariable *, Value *> lastLoadedValues;
+        std::vector<GlobalVariable *> varToHoist;
+        std::map<GlobalVariable *, LoadInst *> loadInstToHoist;
 
         // If this is a global variable, check the next lines to see if there are more
         // load instructions, if there are, replace their values with the value of
@@ -74,8 +77,56 @@ namespace
             }
         }
 
-        // This is a pass to remove global loads in the simple case, where multiple loads of the 
-        // same global variable followed by each other with no jumping instruction in between is 
+        void getHoistableGlobals(Loop &L)
+        {
+            for (BasicBlock *BB : L.blocks())
+            {
+                // within the block, check next instructions, only do the simple case so
+                // stop if there are call or branch and store
+                // after all instructions in the block, we add it to varToHoist
+                for (auto &I : *BB)
+                    if (auto *loadInst = dyn_cast<LoadInst>(&I)) {
+                        if (!isa<GlobalVariable>(loadInst->getPointerOperand())) {
+                            continue;
+                        }
+                        // errs () << *loadInst << '\n';
+                        bool canHoist = true;
+                        for (auto J = std::next(BasicBlock::iterator(loadInst)); J != BB->end();) {
+                            Instruction *nextInst = &*J;
+                            ++J;
+                            if (isa<CallInst>(nextInst)) {
+                                canHoist = false;
+                                break;
+                            }
+                            // if the store inst uses the load inst, then break 
+                            if (auto storeInst = dyn_cast<StoreInst>(nextInst)) {
+                                if (storeInst->getPointerOperand() == loadInst->getPointerOperand()) {
+                                    // errs () << "    " << *storeInst << '\n';
+                                    canHoist = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (canHoist) {
+                            if (auto gv = dyn_cast<GlobalVariable>(loadInst->getPointerOperand())) {
+                                // errs() << *loadInst << "\n";
+                                varToHoist.emplace_back(gv);
+                                loadInstToHoist[gv] = loadInst;
+                            }
+                        }
+                    }
+            }
+        }
+
+        void getAnalysisUsage(AnalysisUsage &info) const
+        {
+            info.setPreservesCFG();
+            // Get analysis pass on loops so we can hoist global vars
+            info.addRequired<LoopInfoWrapperPass>();
+        }
+
+        // This is a pass to remove global loads in the simple case, where multiple loads of the
+        // same global variable followed by each other with no jumping instruction in between is
         // optimized out
         virtual bool runOnFunction(Function &F)
         {
@@ -83,9 +134,43 @@ namespace
             // First, remove loads in the simple case
             for (auto &BB : F)
                 simpleGlobalLoadRemoval(BB);
-            
-            // Then, remove loads when inside a loop, but the loop does not modify the global variable
-            // LoopInfo &LI = FAM.getResult<LoopAnalysis>(F);
+
+
+            // remove global loads in a loop
+            LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+            for (Loop *L : LI)
+            {
+                // this works if there is only one variable in the loop, if there are multiple, 
+                // need to allow if any of them is only loaded
+                getHoistableGlobals(*L);
+                // for each block in the loop
+                // for each instructions
+                // check if it's a load and if it's global
+                // (the following part can be done in the previous step)
+                // if true, check the rest of the blocks to see if it is stored to
+                // if is not stored to, then we can get the loop header and move the load
+                // to outside of the loop
+                for (auto gv: varToHoist) {
+                    errs() << *gv << "\n";
+                    // For each of the global vars, find the load instruction and move it to before
+                    // the loop header
+                    // errs() << *L->getLoopPreheader() << "\n";
+                    // this should be the second to last instruction
+                    Instruction* lastInstruction = L->getLoopPreheader()->getTerminator();
+                    IRBuilder<> Builder(lastInstruction);
+                    auto newLoad = Builder.CreateLoad(gv->getOperand(0)->getType(), gv);
+                    // for each inst that used to use gv, we replace the uses with newLoad
+                    for (auto it = loadInstToHoist.begin(); it != loadInstToHoist.end(); it++)
+                    {
+                        auto gvToReplace = it->first;
+                        auto loadInst = it->second;
+                        if (gvToReplace == gv) {
+                            loadInst->replaceAllUsesWith(newLoad);
+                            loadInst->eraseFromParent();
+                        }
+                    }
+                }
+            }
             return true;
         }
     };

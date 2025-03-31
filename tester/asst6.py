@@ -14,7 +14,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 local_path = SCRIPT_DIR + '/../build/'
 bcgen_cmd = [local_path + '/src/minicc', '-o', 'output.bc']
 llgen_cmd = ['llvm-dis-15','output.bc','-o','output.ll']
-optgen_cmd = ['opt-15', '-O0', '-load', local_path + '/src/liballoca2reg.so', 'output.bc', '-o', 'output_opt.bc', '-enable-new-pm=0']
+optgen_cmd = ['opt-15', '-O0', '-load', local_path + '/src/liballoca2reg.so', '-load', local_path + '/src/libremoveGlobalLoad.so', 'output.bc', '-o', 'output_opt.bc', '-enable-new-pm=0']
 lloptgen_cmd = ['llvm-dis-15','output_opt.bc','-o','output_opt.ll']
 execgen_cmd = ['clang-15', 'output_opt.bc', local_path + '/minicio/libminicio.a', '-o', 'output_opt']
 run_cmd = ['./output_opt']
