@@ -85,30 +85,38 @@ namespace
                 // stop if there are call or branch and store
                 // after all instructions in the block, we add it to varToHoist
                 for (auto &I : *BB)
-                    if (auto *loadInst = dyn_cast<LoadInst>(&I)) {
-                        if (!isa<GlobalVariable>(loadInst->getPointerOperand())) {
+                    if (auto *loadInst = dyn_cast<LoadInst>(&I))
+                    {
+                        if (!isa<GlobalVariable>(loadInst->getPointerOperand()))
+                        {
                             continue;
                         }
                         // errs () << *loadInst << '\n';
                         bool canHoist = true;
-                        for (auto J = std::next(BasicBlock::iterator(loadInst)); J != BB->end();) {
+                        for (auto J = std::next(BasicBlock::iterator(loadInst)); J != BB->end();)
+                        {
                             Instruction *nextInst = &*J;
                             ++J;
-                            if (isa<CallInst>(nextInst)) {
+                            if (isa<CallInst>(nextInst))
+                            {
                                 canHoist = false;
                                 break;
                             }
-                            // if the store inst uses the load inst, then break 
-                            if (auto storeInst = dyn_cast<StoreInst>(nextInst)) {
-                                if (storeInst->getPointerOperand() == loadInst->getPointerOperand()) {
+                            // if the store inst uses the load inst, then break
+                            if (auto storeInst = dyn_cast<StoreInst>(nextInst))
+                            {
+                                if (storeInst->getPointerOperand() == loadInst->getPointerOperand())
+                                {
                                     // errs () << "    " << *storeInst << '\n';
                                     canHoist = false;
                                     break;
                                 }
                             }
                         }
-                        if (canHoist) {
-                            if (auto gv = dyn_cast<GlobalVariable>(loadInst->getPointerOperand())) {
+                        if (canHoist)
+                        {
+                            if (auto gv = dyn_cast<GlobalVariable>(loadInst->getPointerOperand()))
+                            {
                                 // errs() << *loadInst << "\n";
                                 varToHoist.emplace_back(gv);
                                 loadInstToHoist[gv] = loadInst;
@@ -135,12 +143,11 @@ namespace
             for (auto &BB : F)
                 simpleGlobalLoadRemoval(BB);
 
-
             // remove global loads in a loop
             LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
             for (Loop *L : LI)
             {
-                // this works if there is only one variable in the loop, if there are multiple, 
+                // this works if there is only one variable in the loop, if there are multiple,
                 // need to allow if any of them is only loaded
                 getHoistableGlobals(*L);
                 // for each block in the loop
@@ -150,13 +157,14 @@ namespace
                 // if true, check the rest of the blocks to see if it is stored to
                 // if is not stored to, then we can get the loop header and move the load
                 // to outside of the loop
-                for (auto gv: varToHoist) {
-                    errs() << *gv << "\n";
+                for (auto gv : varToHoist)
+                {
+                    // errs() << *gv << "\n";
                     // For each of the global vars, find the load instruction and move it to before
                     // the loop header
                     // errs() << *L->getLoopPreheader() << "\n";
                     // this should be the second to last instruction
-                    Instruction* lastInstruction = L->getLoopPreheader()->getTerminator();
+                    Instruction *lastInstruction = L->getLoopPreheader()->getTerminator();
                     IRBuilder<> Builder(lastInstruction);
                     auto newLoad = Builder.CreateLoad(gv->getOperand(0)->getType(), gv);
                     // for each inst that used to use gv, we replace the uses with newLoad
@@ -164,7 +172,8 @@ namespace
                     {
                         auto gvToReplace = it->first;
                         auto loadInst = it->second;
-                        if (gvToReplace == gv) {
+                        if (gvToReplace == gv)
+                        {
                             loadInst->replaceAllUsesWith(newLoad);
                             loadInst->eraseFromParent();
                         }

@@ -275,54 +275,71 @@ namespace
 
         bool isSelfReference(PHINode *phi, int i)
         {
-            return phi->getParent() == phi->getIncomingBlock(i) && phi->getIncomingValue(i) == phi;
+            return phi->getIncomingValue(i) == phi;
         }
 
-        // TODO: handle the edge case where there is 1 self reference and 1 constant value
-        // void removeSelfReference(Function &F)
-        // {
-        //     std::vector<PHINode *> phiNodes;
+        // handle the edge case where there is 1 self reference and 1 constant value
+        // Since the language doesn't support pointers, i don't think the value of the
+        // phi node can be modified
+        void removeSelfReference(Function &F)
+        {
+            std::vector<std::pair<PHINode *, Value *>> nodesToRemove;
 
-        //     for (BasicBlock &BB : F)
-        //     {
-        //         for (Instruction &inst : BB)
-        //         {
-        //             if (auto phi = dyn_cast<PHINode>(&inst))
-        //             {
-        //                 phiNodes.push_back(phi);
-        //             }
-        //             else
-        //             {
-        //                 break;
-        //             }
-        //         }
-        //         for (PHINode *phi : phiNodes)
-        //         {
-        //             if (phi->getNumIncomingValues() == 2)
-        //             {
-        //                 // the self reference edge is where basic block is the same and
-        //                 // the value is the same
-        //                 Value *initialValue = phi->getIncomingValue(0);
-        //                 Value *selfReference = phi->getIncomingValue(1);
+            for (BasicBlock &BB : F)
+            {
+                std::vector<PHINode *> phiNodes;
+                for (Instruction &inst : BB)
+                {
+                    if (auto phi = dyn_cast<PHINode>(&inst))
+                    {
+                        phiNodes.push_back(phi);
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                for (PHINode *phi : phiNodes)
+                {
+                    if (phi->getNumIncomingValues() == 2)
+                    {
+                        Value *selfReference = nullptr;
+                        BasicBlock *selfReferenceBlock = nullptr;
 
-        //                 BasicBlock *initialBlock = phi->getIncomingBlock(0);
-        //                 BasicBlock *selfReferenceBlock = phi->getIncomingBlock(1);
+                        Value *otherValue = nullptr;
+                        BasicBlock *otherBlock = nullptr;
 
-        //                 if (isSelfReference(phi, 0)) {
+                        if (phi->getIncomingValue(0) == phi)
+                        {
+                            errs() << *phi->getIncomingValue(0) << "\n";
+                            selfReference = phi->getIncomingValue(0);
+                            selfReferenceBlock = phi->getIncomingBlock(0);
+                            otherValue = phi->getIncomingValue(1);
+                            otherBlock = phi->getIncomingBlock(1);
+                        }
+                        else if (phi->getIncomingValue(1) == phi)
+                        {
+                            errs() << *phi->getIncomingValue(1) << "\n";
+                            selfReference = phi->getIncomingValue(1);
+                            selfReferenceBlock = phi->getIncomingBlock(1);
+                            otherValue = phi->getIncomingValue(0);
+                            otherBlock = phi->getIncomingBlock(0);
+                        }
 
-        //                 } else if (isSelfReference(phi, 1)) {
-
-        //                 }
-
-        //                 if (selfReference == phi && areValSame(phi, initialValue))
-        //                 {
-        //                     phi->replaceAllUsesWith(initialValue);
-        //                     phi->eraseFromParent();
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
+                        if (selfReference)
+                        {
+                            nodesToRemove.emplace_back(std::pair(phi, otherValue));
+                        }
+                    }
+                }
+            }
+            for (auto pair : nodesToRemove)
+            {
+                errs() << "Removing " << *pair.first << "\n";
+                pair.first->replaceAllUsesWith(pair.second);
+                pair.first->eraseFromParent();
+            }
+        }
 
         bool removeRedundantPHI(Function &F)
         {
@@ -372,7 +389,7 @@ namespace
                 accumulateUnusedInstructions<PHINode>(F, toRemove);
                 removeInstructions(toRemove, F);
                 toRemove.clear();
-                // removeSelfReference(F);
+                removeSelfReference(F);
             }
             // can also check if phi nodes were stored to? if they weren't then they would be constants
             // and we can get rid of it
