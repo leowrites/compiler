@@ -42,7 +42,9 @@ namespace
                         auto *allocaInst = cast<AllocaInst>(&inst);
                         if (std::all_of(inst.users().begin(), inst.users().end(),
                                         [](User *u)
-                                        { return isa<LoadInst>(u) || isa<StoreInst>(u); }))
+                                        {
+                                            return isa<LoadInst>(u) || isa<StoreInst>(u);
+                                        }))
                         {
                             TargetAllocas.emplace(allocaInst);
                         }
@@ -283,7 +285,9 @@ namespace
         // phi node can be modified
         void removeSelfReference(Function &F)
         {
-            std::vector<std::pair<PHINode *, Value *>> nodesToRemove;
+            // errs() << "-------Before\n";
+            // F.print(errs());
+            std::map<PHINode *, Value *> nodesToRemove;
 
             for (BasicBlock &BB : F)
             {
@@ -301,44 +305,99 @@ namespace
                 }
                 for (PHINode *phi : phiNodes)
                 {
-                    if (phi->getNumIncomingValues() == 2)
+                    Value *nonSelfValue = nullptr;
+                    bool foundNonSelf = false;
+                    bool multipleDistinctNonSelf = false;
+                    bool hasSelfReference = false;
+
+                    for (unsigned i = 0, e = phi->getNumIncomingValues(); i != e; ++i)
                     {
-                        Value *selfReference = nullptr;
-                        BasicBlock *selfReferenceBlock = nullptr;
+                        Value *incomingVal = phi->getIncomingValue(i);
 
-                        Value *otherValue = nullptr;
-                        BasicBlock *otherBlock = nullptr;
-
-                        if (phi->getIncomingValue(0) == phi)
+                        if (incomingVal == phi)
                         {
-                            errs() << *phi->getIncomingValue(0) << "\n";
-                            selfReference = phi->getIncomingValue(0);
-                            selfReferenceBlock = phi->getIncomingBlock(0);
-                            otherValue = phi->getIncomingValue(1);
-                            otherBlock = phi->getIncomingBlock(1);
-                        }
-                        else if (phi->getIncomingValue(1) == phi)
-                        {
-                            errs() << *phi->getIncomingValue(1) << "\n";
-                            selfReference = phi->getIncomingValue(1);
-                            selfReferenceBlock = phi->getIncomingBlock(1);
-                            otherValue = phi->getIncomingValue(0);
-                            otherBlock = phi->getIncomingBlock(0);
+                            hasSelfReference = true;
+                            continue;
                         }
 
-                        if (selfReference)
+                        if (!foundNonSelf)
                         {
-                            nodesToRemove.emplace_back(std::pair(phi, otherValue));
+                            nonSelfValue = incomingVal;
+                            foundNonSelf = true;
+                        }
+                        else
+                        {
+                            // Found another non-self reference, check if it's different
+                            if (nonSelfValue != incomingVal)
+                            {
+                                multipleDistinctNonSelf = true;
+                                break; // Cannot simplify this PHI
+                            }
+                        }
+                    }
+                    if (foundNonSelf && !multipleDistinctNonSelf && hasSelfReference)
+                    {
+                        if (nonSelfValue)
+                        {
+                            nodesToRemove.insert({phi, nonSelfValue});
                         }
                     }
                 }
             }
-            for (auto pair : nodesToRemove)
+
+            // since a phi node could have other phi nodes as reference, which could be deleted
+            // if a phi node references another phi node, follow the chain until the node no longer
+            // references a phi node. Then, replace the the nodes with the real value before we
+            // perform replacement
+            for (auto &pair : nodesToRemove)
             {
-                errs() << "Removing " << *pair.first << "\n";
-                pair.first->replaceAllUsesWith(pair.second);
-                pair.first->eraseFromParent();
+                PHINode *phiToReplace = pair.first;
+                Value *currVal = pair.second;
+
+                // if the current value is a phi node, need to keep looking for a value
+                while (PHINode *parentPhi = dyn_cast<PHINode>(currVal))
+                {
+                    auto it = nodesToRemove.find(parentPhi);
+
+                    if (it == nodesToRemove.end())
+                    {
+                        nodesToRemove[phiToReplace] = currVal;
+                        break;
+                    }
+                    if (auto val = dyn_cast<PHINode>(it->second))
+                    {
+                        currVal = val;
+                    }
+                    else
+                    {
+                        nodesToRemove[phiToReplace] = it->second;
+                        errs() << "     " << parentPhi->getName() << "\n";
+                        break;
+                    }
+                }
             }
+
+            // Replace phi nodes with value
+            if (!nodesToRemove.empty())
+            {
+                for (auto &pair : nodesToRemove)
+                {
+                    PHINode *phiToRemove = pair.first;
+                    Value *replacementValue = pair.second;
+
+                    if (replacementValue)
+                    {
+                        phiToRemove->replaceAllUsesWith(replacementValue);
+                    }
+                }
+
+                for (auto &pair : nodesToRemove)
+                {
+                    pair.first->eraseFromParent();
+                }
+            }
+            // errs() << "---------After\n";
+            // F.print(errs());
         }
 
         bool removeRedundantPHI(Function &F)
@@ -389,6 +448,7 @@ namespace
                 accumulateUnusedInstructions<PHINode>(F, toRemove);
                 removeInstructions(toRemove, F);
                 toRemove.clear();
+                // TODO: this is buggy
                 removeSelfReference(F);
             }
             // can also check if phi nodes were stored to? if they weren't then they would be constants
